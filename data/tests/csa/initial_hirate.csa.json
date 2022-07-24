@@ -1,0 +1,12 @@
+{
+  "header": {
+    "先手": "player0",
+    "後手": "player1"
+  },
+  "initial": {
+    "preset": "HIRATE"
+  },
+  "moves": [
+    {}
+  ]
+}

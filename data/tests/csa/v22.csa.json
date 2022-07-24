@@ -1,0 +1,78 @@
+{
+  "header": {
+    "棋戦": "13th World Computer Shogi Championship",
+    "場所": "KAZUSA ARC",
+    "開始日時": "2003/05/03 10:30:00",
+    "終了日時": "2003/05/03 11:11:05",
+    "持ち時間": "00:25+00",
+    "OPENING": "YAGURA",
+    "先手": "NAKAHARA",
+    "後手": "YONENAGA"
+  },
+  "initial": {
+    "preset": "HIRATE"
+  },
+  "moves": [
+    {
+      "comments": [
+        "指し手と消費時間"
+      ]
+    },
+    {
+      "time": {
+        "now": {
+          "m": 0,
+          "s": 12
+        },
+        "total": {
+          "h": 0,
+          "m": 0,
+          "s": 12
+        }
+      },
+      "move": {
+        "to": {
+          "x": 2,
+          "y": 6
+        },
+        "piece": "FU",
+        "from": {
+          "x": 2,
+          "y": 7
+        },
+        "color": 0
+      }
+    },
+    {
+      "time": {
+        "now": {
+          "m": 0,
+          "s": 6
+        },
+        "total": {
+          "h": 0,
+          "m": 0,
+          "s": 6
+        }
+      },
+      "move": {
+        "to": {
+          "x": 3,
+          "y": 4
+        },
+        "piece": "FU",
+        "from": {
+          "x": 3,
+          "y": 3
+        },
+        "color": 1
+      }
+    },
+    {
+      "comments": [
+        "---------------------------------------------------------"
+      ],
+      "special": "CHUDAN"
+    }
+  ]
+}
