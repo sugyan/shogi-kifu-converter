@@ -9,7 +9,7 @@ pub enum Color {
     White = 1,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Kind {
     FU = 0,
     KY = 1,
@@ -65,6 +65,25 @@ pub enum Preset {
     PresetOther, // その他
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Relative {
+    L, // 左
+    C, // 直
+    R, // 右
+    U, // 上
+    M, // 寄
+    D, // 引
+    LU,
+    LM,
+    LD,
+    CU,
+    CD,
+    RU,
+    RM,
+    RD,
+    H, // 打
+}
+
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq)]
 pub struct JsonKifFormat {
     pub header: HashMap<String, String>,
@@ -81,46 +100,57 @@ pub struct Initial {
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StateFormat {
     pub color: Color,
-    pub board: Board,
-    pub hands: Hands,
+    pub board: [[Piece; 9]; 9],
+    pub hands: [Hand; 2],
 }
-
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[serde(transparent)]
-pub struct Board(pub [[Piece; 9]; 9]);
-
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[serde(transparent)]
-pub struct Hands(pub [Hand; 2]);
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[allow(non_snake_case)]
 pub struct Hand {
-    FU: u8,
-    KY: u8,
-    KE: u8,
-    GI: u8,
-    KI: u8,
-    KA: u8,
-    HI: u8,
+    pub FU: u8,
+    pub KY: u8,
+    pub KE: u8,
+    pub GI: u8,
+    pub KI: u8,
+    pub KA: u8,
+    pub HI: u8,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Piece {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<Color>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // #[serde(skip_serializing_if = "Option::is_none")]
     pub kind: Option<Kind>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq)]
 pub struct MoveFormat {
+    #[serde(rename = "move")]
     pub move_: Option<MoveMoveFormat>,
+    // #[serde(skip_serializing_if = "Option::is_none")]
     pub comments: Option<Vec<String>>,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    pub special: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
-pub struct MoveMoveFormat {}
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MoveMoveFormat {
+    pub color: Color,
+    pub from: Option<PlaceFormat>,
+    pub to: PlaceFormat,
+    pub piece: Kind,
+    pub same: Option<bool>,
+    pub promote: Option<bool>,
+    pub capture: Option<Kind>,
+    pub relative: Option<Relative>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlaceFormat {
+    pub x: u8,
+    pub y: u8,
+}
 
 #[cfg(test)]
 mod tests {
@@ -195,19 +225,18 @@ mod tests {
         {
             let entry = entry.expect("failed to read entry");
             let path = entry.path();
-            if path.extension() != Some(OsStr::new("csa")) {
-                continue;
-            }
-            let mut file = File::open(&path).expect("failed to open file");
-            let mut buf = String::new();
-            file.read_to_string(&mut buf).expect("failed to read file");
-            let record = csa::parse_csa(&buf).expect("failed to parse csa");
-            let value =
-                serde_json::to_value(&JsonKifFormat::from(record)).expect("failed to serialize");
-            let result = schema.validate(&value);
-            if let Err(errors) = result {
-                for err in errors {
-                    panic!("error on {}: {:?}", path.display(), err);
+            if path.extension() == Some(OsStr::new("csa")) {
+                let mut file = File::open(&path).expect("failed to open file");
+                let mut buf = String::new();
+                file.read_to_string(&mut buf).expect("failed to read file");
+                let record = csa::parse_csa(&buf).expect("failed to parse csa");
+                let value = serde_json::to_value(&JsonKifFormat::from(record))
+                    .expect("failed to serialize");
+                let result = schema.validate(&value);
+                if let Err(errors) = result {
+                    for err in errors {
+                        panic!("error on {}: {:?}", path.display(), err);
+                    }
                 }
             }
         }
