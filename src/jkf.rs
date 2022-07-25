@@ -94,6 +94,7 @@ pub struct JsonKifFormat {
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Initial {
     pub preset: Preset,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<StateFormat>,
 }
 
@@ -127,22 +128,28 @@ pub struct Piece {
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq)]
 pub struct MoveFormat {
     #[serde(rename = "move")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub move_: Option<MoveMoveFormat>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub comments: Option<Vec<String>>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub special: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MoveMoveFormat {
     pub color: Color,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub from: Option<PlaceFormat>,
     pub to: PlaceFormat,
     pub piece: Kind,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub same: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub promote: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub capture: Option<Kind>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub relative: Option<Relative>,
 }
 

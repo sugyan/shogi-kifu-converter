@@ -1,7 +1,4 @@
-use crate::jkf::{
-    Color, Hand, Initial, JsonKifFormat, Kind, MoveMoveFormat, Piece, PlaceFormat, Preset,
-    Relative, StateFormat,
-};
+use crate::jkf::*;
 use shogi_core::{LegalityChecker, PartialPosition};
 use shogi_legality_lite::LiteLegalityChecker;
 use std::cmp::Ordering;

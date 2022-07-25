@@ -1,7 +1,4 @@
-use crate::jkf::{
-    Color, Hand, Initial, JsonKifFormat, Kind, MoveFormat, MoveMoveFormat, Piece, PlaceFormat,
-    Preset, StateFormat,
-};
+use crate::jkf::*;
 use crate::normalizer::{normalize, HIRATE_BOARD};
 use csa::{GameRecord, Position};
 use std::collections::HashMap;
