@@ -1,11 +1,23 @@
+use crate::error::ConvertError;
 use crate::jkf::*;
 use crate::normalizer::{normalize, HIRATE_BOARD};
 use csa::{GameRecord, Position};
 use std::collections::HashMap;
 use std::time::Duration;
+use thiserror::Error;
 
-impl From<GameRecord> for JsonKifFormat {
-    fn from(record: GameRecord) -> Self {
+#[derive(Error, Debug)]
+pub enum CsaConverterError {
+    #[error("Zero Square")]
+    SquareZero,
+    #[error("AL PieceType")]
+    PieceTypeAll,
+}
+
+impl TryFrom<GameRecord> for JsonKifFormat {
+    type Error = ConvertError;
+
+    fn try_from(record: GameRecord) -> Result<Self, Self::Error> {
         // Header
         let mut header = HashMap::new();
         if let Some(s) = record.black_player {
@@ -37,7 +49,7 @@ impl From<GameRecord> for JsonKifFormat {
         // Moves
         let mut moves = vec![MoveFormat::default()];
         for m in record.moves {
-            moves.push(m.into());
+            moves.push(m.try_into()?);
         }
         // Create JsonKifFormat, and normalize it
         let mut jkf = Self {
@@ -45,8 +57,8 @@ impl From<GameRecord> for JsonKifFormat {
             initial,
             moves,
         };
-        normalize(&mut jkf);
-        jkf
+        normalize(&mut jkf)?;
+        Ok(jkf)
     }
 }
 
@@ -136,19 +148,21 @@ impl From<Position> for Initial {
     }
 }
 
-impl From<csa::MoveRecord> for MoveFormat {
-    fn from(m: csa::MoveRecord) -> Self {
+impl TryFrom<csa::MoveRecord> for MoveFormat {
+    type Error = CsaConverterError;
+
+    fn try_from(m: csa::MoveRecord) -> Result<Self, Self::Error> {
         let time = m.time.map(|d| Time {
             now: d.into(),
             total: TimeFormat::default(),
         });
         match m.action {
-            csa::Action::Move(c, from, to, pt) => MoveFormat {
+            csa::Action::Move(c, from, to, pt) => Ok(MoveFormat {
                 move_: Some(MoveMoveFormat {
                     color: c.into(),
-                    piece: pt.try_into().expect("invalid piece"),
+                    piece: pt.try_into()?,
                     from: from.try_into().ok(),
-                    to: to.try_into().expect("invalid place `to`"),
+                    to: to.try_into()?,
                     same: None,
                     promote: None,
                     capture: None,
@@ -157,13 +171,13 @@ impl From<csa::MoveRecord> for MoveFormat {
                 comments: None,
                 time,
                 special: None,
-            },
-            action => MoveFormat {
+            }),
+            action => Ok(MoveFormat {
                 move_: None,
                 comments: None,
                 time,
                 special: Some(String::from(&action.to_string()[1..])),
-            },
+            }),
         }
     }
 }
@@ -200,11 +214,11 @@ impl From<Duration> for TimeFormat {
 }
 
 impl TryFrom<csa::Square> for PlaceFormat {
-    type Error = ();
+    type Error = CsaConverterError;
 
     fn try_from(sq: csa::Square) -> Result<Self, Self::Error> {
         if sq.file == 0 && sq.rank == 0 {
-            Err(())
+            Err(CsaConverterError::SquareZero)
         } else {
             Ok(PlaceFormat {
                 x: sq.file,
@@ -215,7 +229,7 @@ impl TryFrom<csa::Square> for PlaceFormat {
 }
 
 impl TryFrom<csa::PieceType> for Kind {
-    type Error = ();
+    type Error = CsaConverterError;
 
     fn try_from(pt: csa::PieceType) -> Result<Self, Self::Error> {
         match pt {
@@ -233,7 +247,7 @@ impl TryFrom<csa::PieceType> for Kind {
             csa::PieceType::ProSilver => Ok(Kind::NG),
             csa::PieceType::Horse => Ok(Kind::UM),
             csa::PieceType::Dragon => Ok(Kind::RY),
-            csa::PieceType::All => Err(()),
+            csa::PieceType::All => Err(CsaConverterError::PieceTypeAll),
         }
     }
 }
@@ -259,7 +273,7 @@ mod tests {
             let mut buf = String::new();
             file.read_to_string(&mut buf)?;
             let record = csa::parse_csa(&buf).expect("failed to parse csa");
-            let jkf = record.into();
+            let jkf = record.try_into().expect("failed to convert csa to jkf");
 
             // Load exptected JSON
             assert!(path.set_extension("json"));

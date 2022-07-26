@@ -250,8 +250,8 @@ mod tests {
                 let mut buf = String::new();
                 file.read_to_string(&mut buf)?;
                 let record = csa::parse_csa(&buf).expect("failed to parse csa");
-                let value = serde_json::to_value(&JsonKifFormat::from(record))
-                    .expect("failed to serialize");
+                let jkf: JsonKifFormat = record.try_into().expect("failed to convert csa to jkf");
+                let value = serde_json::to_value(&jkf).expect("failed to serialize");
                 let result = schema.validate(&value);
                 if let Err(errors) = result {
                     for err in errors {

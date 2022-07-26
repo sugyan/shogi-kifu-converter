@@ -3,6 +3,17 @@ use shogi_core::{LegalityChecker, PartialPosition};
 use shogi_legality_lite::LiteLegalityChecker;
 use std::cmp::Ordering;
 use std::ops::AddAssign;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum NormalizerError {
+    #[error("Invalid Place: {0:?}")]
+    InvalidPlace((u8, u8)),
+    #[error("Invalid Move: {0}")]
+    MoveInconsistent(&'static str),
+    #[error("Invalid Move")]
+    MoveError,
+}
 
 pub(crate) const HIRATE_BOARD: [[Piece; 9]; 9] = {
     #[rustfmt::skip]
@@ -197,28 +208,30 @@ impl AddAssign for TimeFormat {
     }
 }
 
-impl From<MoveMoveFormat> for shogi_core::Move {
-    fn from(mmf: MoveMoveFormat) -> Self {
+impl TryFrom<MoveMoveFormat> for shogi_core::Move {
+    type Error = NormalizerError;
+
+    fn try_from(mmf: MoveMoveFormat) -> Result<Self, Self::Error> {
         if let Some(from) = mmf.from {
-            shogi_core::Move::Normal {
-                from: from.try_into().expect("from"),
-                to: mmf.to.try_into().expect("to"),
+            Ok(shogi_core::Move::Normal {
+                from: from.try_into()?,
+                to: mmf.to.try_into()?,
                 promote: mmf.promote.unwrap_or_default(),
-            }
+            })
         } else {
-            shogi_core::Move::Drop {
+            Ok(shogi_core::Move::Drop {
                 piece: mmf.into(),
-                to: mmf.to.try_into().expect("to"),
-            }
+                to: mmf.to.try_into()?,
+            })
         }
     }
 }
 
 impl TryFrom<PlaceFormat> for shogi_core::Square {
-    type Error = ();
+    type Error = NormalizerError;
 
     fn try_from(pf: PlaceFormat) -> Result<Self, Self::Error> {
-        shogi_core::Square::new(pf.x, pf.y).ok_or(())
+        shogi_core::Square::new(pf.x, pf.y).ok_or(NormalizerError::InvalidPlace((pf.x, pf.y)))
     }
 }
 
@@ -279,7 +292,7 @@ impl From<Color> for shogi_core::Color {
     }
 }
 
-pub(crate) fn normalize(jkf: &mut JsonKifFormat) {
+pub(crate) fn normalize(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
     // Normalize initial state
     if let Some(initial) = jkf.initial {
         jkf.initial = match initial.data {
@@ -345,10 +358,12 @@ pub(crate) fn normalize(jkf: &mut JsonKifFormat) {
         if let Some(m) = &mut mf.move_ {
             if let Some(from) = m.from {
                 let c = pos.side_to_move();
-                let from = from.try_into().expect("from");
-                let to: shogi_core::Square = m.to.try_into().expect("to");
+                let from = from.try_into()?;
+                let to: shogi_core::Square = m.to.try_into()?;
                 // Retrieve piece
-                let piece = pos.piece_at(from).expect("piece_at from");
+                let piece = pos
+                    .piece_at(from)
+                    .ok_or(NormalizerError::MoveInconsistent("no piece to move found"))?;
                 let from_piece_kind = piece.piece_kind();
                 let to_piece_kind = m.piece.into();
                 m.piece = from_piece_kind.into();
@@ -381,10 +396,11 @@ pub(crate) fn normalize(jkf: &mut JsonKifFormat) {
                     });
                 }
             }
-            pos.make_move((*m).into())
-                .expect("failed to normalize moves");
+            pos.make_move((*m).try_into()?)
+                .ok_or(NormalizerError::MoveError)?;
         } else {
             break;
         }
     }
+    Ok(())
 }
