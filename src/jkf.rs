@@ -184,17 +184,16 @@ mod tests {
     use std::io::{BufReader, Read, Result};
     use std::path::Path;
 
-    fn load_schema() -> JSONSchema {
-        let file = File::open("data/specification/json-kifu-format.schema.json")
-            .expect("failed to open file");
-        JSONSchema::compile(
+    fn load_schema() -> Result<JSONSchema> {
+        let file = File::open("data/specification/json-kifu-format.schema.json")?;
+        Ok(JSONSchema::compile(
             &serde_json::from_reader::<_, serde_json::Value>(BufReader::new(file))
                 .expect("failed to parse JSON"),
         )
-        .expect("failed to compile schema")
+        .expect("failed to compile schema"))
     }
 
-    fn visit_dirs(dir: &Path, cb: &dyn Fn(&DirEntry)) -> Result<()> {
+    fn visit_dirs(dir: &Path, cb: &dyn Fn(&DirEntry) -> Result<()>) -> Result<()> {
         if dir.is_dir() {
             for entry in dir.read_dir()? {
                 let entry = entry?;
@@ -202,7 +201,7 @@ mod tests {
                 if path.is_dir() {
                     visit_dirs(&path, cb)?;
                 } else {
-                    cb(&entry);
+                    cb(&entry)?;
                 }
             }
         }
@@ -210,24 +209,25 @@ mod tests {
     }
 
     #[test]
-    fn deserialize() {
-        visit_dirs(Path::new("data/tests"), &|entry: &DirEntry| {
+    fn deserialize() -> Result<()> {
+        visit_dirs(Path::new("data/tests"), &|entry: &DirEntry| -> Result<()> {
             let path = entry.path();
             if path.extension() == Some(OsStr::new("json")) {
-                let file = File::open(&path).expect("failed to open file");
+                let file = File::open(&path)?;
+                let reader = BufReader::new(file);
                 assert!(
-                    serde_json::from_reader::<_, JsonKifFormat>(BufReader::new(file)).is_ok(),
+                    serde_json::from_reader::<_, JsonKifFormat>(reader).is_ok(),
                     "failed to deserialize: {}",
                     path.display()
                 );
             }
+            Ok(())
         })
-        .expect("failed to visit dirs");
     }
 
     #[test]
-    fn validate_default() {
-        let schema = load_schema();
+    fn validate_default() -> Result<()> {
+        let schema = load_schema()?;
 
         let value = serde_json::to_value(&JsonKifFormat::default()).expect("failed to serialize");
         let result = schema.validate(&value);
@@ -236,22 +236,19 @@ mod tests {
                 panic!("{:?}", err);
             }
         }
+        Ok(())
     }
 
     #[test]
-    fn validate_from_csa_files() {
-        let schema = load_schema();
+    fn validate_from_csa_files() -> Result<()> {
+        let schema = load_schema()?;
 
-        for entry in Path::new("data/tests/csa")
-            .read_dir()
-            .expect("failed to read dir")
-        {
-            let entry = entry.expect("failed to read entry");
-            let path = entry.path();
+        for entry in Path::new("data/tests/csa").read_dir()? {
+            let path = entry?.path();
             if path.extension() == Some(OsStr::new("csa")) {
-                let mut file = File::open(&path).expect("failed to open file");
+                let mut file = File::open(&path)?;
                 let mut buf = String::new();
-                file.read_to_string(&mut buf).expect("failed to read file");
+                file.read_to_string(&mut buf)?;
                 let record = csa::parse_csa(&buf).expect("failed to parse csa");
                 let value = serde_json::to_value(&JsonKifFormat::from(record))
                     .expect("failed to serialize");
@@ -263,5 +260,6 @@ mod tests {
                 }
             }
         }
+        Ok(())
     }
 }

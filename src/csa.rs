@@ -243,28 +243,27 @@ mod tests {
     use crate::jkf::*;
     use std::ffi::OsStr;
     use std::fs::File;
-    use std::io::{BufReader, Read};
+    use std::io::{BufReader, Read, Result};
     use std::path::Path;
 
     #[test]
-    fn csa_to_jkf() {
+    fn csa_to_jkf() -> Result<()> {
         let dir = Path::new("data/tests/csa");
-        for entry in dir.read_dir().expect("failed to read dir") {
+        for entry in dir.read_dir()? {
             // Parse and convert CSA to JKF
-            let entry = entry.expect("failed to read entry");
-            let mut path = entry.path();
+            let mut path = entry?.path();
             if path.extension() != Some(OsStr::new("csa")) {
                 continue;
             }
-            let mut file = File::open(&path).expect("failed to open file");
+            let mut file = File::open(&path)?;
             let mut buf = String::new();
-            file.read_to_string(&mut buf).expect("failed to read file");
+            file.read_to_string(&mut buf)?;
             let record = csa::parse_csa(&buf).expect("failed to parse csa");
             let jkf = record.into();
 
             // Load exptected JSON
             assert!(path.set_extension("json"));
-            let file = File::open(&path).expect("failed to open file");
+            let file = File::open(&path)?;
             let mut expected = serde_json::from_reader::<_, JsonKifFormat>(BufReader::new(file))
                 .expect("failed to parse json");
             // Remove all move comments (they cannot be restored from csa...)
@@ -272,5 +271,6 @@ mod tests {
 
             assert_eq!(expected, jkf, "different from expected: {}", path.display());
         }
+        Ok(())
     }
 }
