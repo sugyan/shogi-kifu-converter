@@ -158,6 +158,48 @@
     }
   },
   "moves": [
-    {}
+    {},
+    {
+      "move": {
+        "to": {
+          "x": 7,
+          "y": 2
+        },
+        "piece": "KY",
+        "from": {
+          "x": 7,
+          "y": 5
+        },
+        "color": 0,
+        "promote": true
+      }
+    },
+    {
+      "move": {
+        "to": {
+          "x": 8,
+          "y": 6
+        },
+        "piece": "KE",
+        "color": 1
+      }
+    },
+    {
+      "move": {
+        "to": {
+          "x": 7,
+          "y": 3
+        },
+        "piece": "RY",
+        "from": {
+          "x": 7,
+          "y": 6
+        },
+        "color": 0
+      }
+    },
+    {
+      "special": "TSUMI"
+    }
   ]
 }

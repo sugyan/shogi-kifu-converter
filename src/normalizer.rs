@@ -9,7 +9,11 @@ use thiserror::Error;
 pub enum NormalizerError {
     #[error("Invalid Place: {0:?}")]
     InvalidPlace((u8, u8)),
-    #[error("Invalid Move: {0}")]
+    #[error("Invalid initial board: no data with preset `OTHER`")]
+    InitialBoardNoDataWithPresetOTHER,
+    #[error("Invalid initial hands: {0:?}")]
+    InitialHands(Kind),
+    #[error("Invalid move: {0}")]
     MoveInconsistent(&'static str),
     #[error("Invalid Move")]
     MoveError,
@@ -293,7 +297,12 @@ impl From<Color> for shogi_core::Color {
 }
 
 pub(crate) fn normalize(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
-    // Normalize initial state
+    normalize_initial(jkf)?;
+    normalize_moves(jkf)?;
+    Ok(())
+}
+
+fn normalize_initial(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
     if let Some(initial) = jkf.initial {
         jkf.initial = match initial.data {
             Some(STATE_HIRATE) => Some(Initial {
@@ -327,16 +336,56 @@ pub(crate) fn normalize(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> 
             _ => jkf.initial,
         };
     }
-    // Normalize moves
+    Ok(())
+}
+
+fn normalize_moves(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
     let mut pos = if let Some(initial) = jkf.initial {
         match initial.preset {
             Preset::PresetHirate => PartialPosition::startpos(),
             Preset::PresetOther => {
-                // let data = initial.data.expect("no data with preset `OTHER`");
-                // let mut pos = PartialPosition::empty();
-                // pos
-                // TODO
-                PartialPosition::empty()
+                let data = initial
+                    .data
+                    .ok_or(NormalizerError::InitialBoardNoDataWithPresetOTHER)?;
+                let mut pos = PartialPosition::empty();
+                // board
+                for (i, v) in data.board.iter().enumerate() {
+                    for (j, p) in v.iter().enumerate() {
+                        let sq = PlaceFormat {
+                            x: i as u8 + 1,
+                            y: j as u8 + 1,
+                        }
+                        .try_into()?;
+                        if let (Some(kind), Some(color)) = (p.kind, p.color) {
+                            pos.piece_set(
+                                sq,
+                                Some(shogi_core::Piece::new(kind.into(), color.into())),
+                            );
+                        }
+                    }
+                }
+                // hands
+                for (hand, c) in data.hands.iter().zip(shogi_core::Color::all()) {
+                    let h = pos.hand_of_a_player_mut(c);
+                    for (num, pk) in [
+                        (hand.FU, shogi_core::PieceKind::Pawn),
+                        (hand.KY, shogi_core::PieceKind::Lance),
+                        (hand.KE, shogi_core::PieceKind::Knight),
+                        (hand.GI, shogi_core::PieceKind::Silver),
+                        (hand.KI, shogi_core::PieceKind::Gold),
+                        (hand.KA, shogi_core::PieceKind::Bishop),
+                        (hand.HI, shogi_core::PieceKind::Rook),
+                    ] {
+                        for _ in 0..num {
+                            *h = h
+                                .added(pk)
+                                .ok_or_else(|| NormalizerError::InitialHands(pk.into()))?;
+                        }
+                    }
+                }
+                // color
+                pos.side_to_move_set(data.color.into());
+                pos
             }
             _ => {
                 let mut pos = PartialPosition::startpos();
@@ -348,6 +397,7 @@ pub(crate) fn normalize(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> 
     } else {
         PartialPosition::startpos()
     };
+
     let mut totals = [TimeFormat::default(); 2];
     for mf in jkf.moves[1..].iter_mut() {
         // Calculate total time
@@ -358,7 +408,7 @@ pub(crate) fn normalize(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> 
         if let Some(m) = &mut mf.move_ {
             if let Some(from) = m.from {
                 let c = pos.side_to_move();
-                let from = from.try_into()?;
+                let from: shogi_core::Square = from.try_into()?;
                 let to: shogi_core::Square = m.to.try_into()?;
                 // Retrieve piece
                 let piece = pos
