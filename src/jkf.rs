@@ -133,6 +133,8 @@ pub struct MoveFormat {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub comments: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub time: Option<Time>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub special: Option<String>,
 }
 
@@ -157,6 +159,20 @@ pub struct MoveMoveFormat {
 pub struct PlaceFormat {
     pub x: u8,
     pub y: u8,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct Time {
+    pub now: TimeFormat,
+    pub total: TimeFormat,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TimeFormat {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub h: Option<u8>,
+    pub m: u8,
+    pub s: u8,
 }
 
 #[cfg(test)]

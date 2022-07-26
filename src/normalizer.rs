@@ -2,6 +2,7 @@ use crate::jkf::*;
 use shogi_core::{LegalityChecker, PartialPosition};
 use shogi_legality_lite::LiteLegalityChecker;
 use std::cmp::Ordering;
+use std::ops::AddAssign;
 
 pub(crate) const HIRATE_BOARD: [[Piece; 9]; 9] = {
     #[rustfmt::skip]
@@ -183,18 +184,31 @@ impl Hand {
     }
 }
 
+impl AddAssign for TimeFormat {
+    fn add_assign(&mut self, rhs: Self) {
+        let s = (self.h.unwrap_or_default() + rhs.h.unwrap_or_default()) as u64 * 3600
+            + (self.m + rhs.m) as u64 * 60
+            + (self.s + rhs.s) as u64;
+        let m = (s / 60) % 60;
+        let h = s / 3600;
+        self.h = Some(h as u8);
+        self.m = m as u8;
+        self.s = (s % 60) as u8;
+    }
+}
+
 impl From<MoveMoveFormat> for shogi_core::Move {
     fn from(mmf: MoveMoveFormat) -> Self {
         if let Some(from) = mmf.from {
             shogi_core::Move::Normal {
-                from: shogi_core::Square::try_from(from).expect("from"),
-                to: shogi_core::Square::try_from(mmf.to).expect("to"),
+                from: from.try_into().expect("from"),
+                to: mmf.to.try_into().expect("to"),
                 promote: mmf.promote.unwrap_or_default(),
             }
         } else {
             shogi_core::Move::Drop {
-                piece: shogi_core::Piece::from(mmf),
-                to: shogi_core::Square::try_from(mmf.to).expect("to"),
+                piece: mmf.into(),
+                to: mmf.to.try_into().expect("to"),
             }
         }
     }
@@ -210,10 +224,7 @@ impl TryFrom<PlaceFormat> for shogi_core::Square {
 
 impl From<MoveMoveFormat> for shogi_core::Piece {
     fn from(mmf: MoveMoveFormat) -> Self {
-        shogi_core::Piece::new(
-            shogi_core::PieceKind::from(mmf.piece),
-            shogi_core::Color::from(mmf.color),
-        )
+        shogi_core::Piece::new(mmf.piece.into(), mmf.color.into())
     }
 }
 
@@ -324,17 +335,23 @@ pub(crate) fn normalize(jkf: &mut JsonKifFormat) {
     } else {
         PartialPosition::startpos()
     };
+    let mut totals = [TimeFormat::default(); 2];
     for mf in jkf.moves[1..].iter_mut() {
+        // Calculate total time
+        if let Some(time) = &mut mf.time {
+            totals[pos.side_to_move().array_index()] += time.now;
+            time.total = totals[pos.side_to_move().array_index()];
+        }
         if let Some(m) = &mut mf.move_ {
             if let Some(from) = m.from {
                 let c = pos.side_to_move();
-                let from = shogi_core::Square::try_from(from).expect("from");
-                let to = shogi_core::Square::try_from(m.to).expect("to");
+                let from = from.try_into().expect("from");
+                let to: shogi_core::Square = m.to.try_into().expect("to");
                 // Retrieve piece
                 let piece = pos.piece_at(from).expect("piece_at from");
                 let from_piece_kind = piece.piece_kind();
-                let to_piece_kind = shogi_core::PieceKind::from(m.piece);
-                m.piece = Kind::from(from_piece_kind);
+                let to_piece_kind = m.piece.into();
+                m.piece = from_piece_kind.into();
                 // Set same?
                 if pos
                     .last_move()
@@ -351,7 +368,7 @@ pub(crate) fn normalize(jkf: &mut JsonKifFormat) {
                 }
                 // Set capture?
                 if let Some(p) = pos.piece_at(to) {
-                    m.capture = Some(Kind::from(p.piece_kind()));
+                    m.capture = Some(p.piece_kind().into());
                 }
                 // Set relative?
                 let candidates = LiteLegalityChecker.normal_to_candidates(&pos, to, piece);

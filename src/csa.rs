@@ -2,6 +2,7 @@ use crate::jkf::*;
 use crate::normalizer::{normalize, HIRATE_BOARD};
 use csa::{GameRecord, Position};
 use std::collections::HashMap;
+use std::time::Duration;
 
 impl From<GameRecord> for JsonKifFormat {
     fn from(record: GameRecord) -> Self {
@@ -32,11 +33,11 @@ impl From<GameRecord> for JsonKifFormat {
             header.insert(String::from("戦型"), s);
         }
         // Initial
-        let initial = Some(Initial::from(record.start_pos));
+        let initial = Some(record.start_pos.into());
         // Moves
         let mut moves = vec![MoveFormat::default()];
         for m in record.moves {
-            moves.push(MoveFormat::from(m));
+            moves.push(m.into());
         }
         // Create JsonKifFormat, and normalize it
         let mut jkf = Self {
@@ -73,7 +74,7 @@ impl From<Position> for Initial {
             }
         });
         // Color
-        let color = Color::from(pos.side_to_move);
+        let color = pos.side_to_move.into();
         // Board
         let board = if let Some(grid) = pos.bulk {
             // 一括表現
@@ -115,11 +116,12 @@ impl From<Position> for Initial {
         // Hands
         let mut hands = [Hand::default(); 2];
         for &(c, pt) in &hand_pieces {
-            if let Ok(kind) = Kind::try_from(pt) {
-                hands[Color::from(c) as usize].add(kind);
+            let index = Into::<Color>::into(c) as usize;
+            if let Ok(kind) = pt.try_into() {
+                hands[index].add(kind);
             } else {
                 for (&kind, &num) in &pieces {
-                    (0..num).for_each(|_| hands[Color::from(c) as usize].add(kind));
+                    (0..num).for_each(|_| hands[index].add(kind));
                 }
             }
         }
@@ -136,24 +138,30 @@ impl From<Position> for Initial {
 
 impl From<csa::MoveRecord> for MoveFormat {
     fn from(m: csa::MoveRecord) -> Self {
+        let time = m.time.map(|d| Time {
+            now: d.into(),
+            total: TimeFormat::default(),
+        });
         match m.action {
             csa::Action::Move(c, from, to, pt) => MoveFormat {
                 move_: Some(MoveMoveFormat {
-                    color: Color::from(c),
-                    piece: Kind::try_from(pt).expect("invalid piece"),
-                    from: PlaceFormat::try_from(from).ok(),
-                    to: PlaceFormat::try_from(to).expect("invalid place `to`"),
+                    color: c.into(),
+                    piece: pt.try_into().expect("invalid piece"),
+                    from: from.try_into().ok(),
+                    to: to.try_into().expect("invalid place `to`"),
                     same: None,
                     promote: None,
                     capture: None,
                     relative: None,
                 }),
                 comments: None,
+                time,
                 special: None,
             },
             action => MoveFormat {
                 move_: None,
                 comments: None,
+                time,
                 special: Some(String::from(&action.to_string()[1..])),
             },
         }
@@ -163,8 +171,8 @@ impl From<csa::MoveRecord> for MoveFormat {
 impl From<(csa::Color, csa::PieceType)> for Piece {
     fn from((c, pt): (csa::Color, csa::PieceType)) -> Self {
         Piece {
-            color: Some(Color::from(c)),
-            kind: Kind::try_from(pt).ok(),
+            color: Some(c.into()),
+            kind: pt.try_into().ok(),
         }
     }
 }
@@ -174,6 +182,19 @@ impl From<csa::Color> for Color {
         match c {
             csa::Color::Black => Color::Black,
             csa::Color::White => Color::White,
+        }
+    }
+}
+
+impl From<Duration> for TimeFormat {
+    fn from(d: Duration) -> Self {
+        let s = d.as_secs();
+        let m = (s / 60) % 60;
+        let h = s / 3600;
+        TimeFormat {
+            h: if h > 0 { Some(h as u8) } else { None },
+            m: m as u8,
+            s: (s % 60) as u8,
         }
     }
 }
@@ -239,7 +260,7 @@ mod tests {
             let mut buf = String::new();
             file.read_to_string(&mut buf).expect("failed to read file");
             let record = csa::parse_csa(&buf).expect("failed to parse csa");
-            let jkf = JsonKifFormat::from(record);
+            let jkf = record.into();
 
             // Load exptected JSON
             let mut json_filename = path
@@ -251,10 +272,6 @@ mod tests {
             let file = File::open(&path).expect("failed to open file");
             let mut expected = serde_json::from_reader::<_, JsonKifFormat>(BufReader::new(file))
                 .expect("failed to parse json");
-            // Rename header key
-            if let Some(v) = expected.header.remove("OPENING") {
-                expected.header.insert(String::from("戦型"), v);
-            }
             // Remove all move comments (they cannot be restored from csa...)
             expected.moves.iter_mut().for_each(|m| m.comments = None);
 
