@@ -263,12 +263,7 @@ mod tests {
             let jkf = record.into();
 
             // Load exptected JSON
-            let mut json_filename = path
-                .file_name()
-                .expect("failed to get file name")
-                .to_os_string();
-            json_filename.push(".json");
-            path.set_file_name(json_filename);
+            assert!(path.set_extension("json"));
             let file = File::open(&path).expect("failed to open file");
             let mut expected = serde_json::from_reader::<_, JsonKifFormat>(BufReader::new(file))
                 .expect("failed to parse json");
