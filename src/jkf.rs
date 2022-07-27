@@ -125,7 +125,7 @@ pub struct Piece {
     pub kind: Option<Kind>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub struct MoveFormat {
     #[serde(rename = "move")]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -155,13 +155,13 @@ pub struct MoveMoveFormat {
     pub relative: Option<Relative>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PlaceFormat {
     pub x: u8,
     pub y: u8,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Time {
     pub now: TimeFormat,
     pub total: TimeFormat,
