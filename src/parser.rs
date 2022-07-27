@@ -45,3 +45,58 @@ pub fn parse_kif_str(s: &str) -> Result<JsonKifFormat, ConvertError> {
         Err(err) => Err(ConvertError::KifError(convert_error(s, err))),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+    use std::ffi::OsStr;
+    use std::io::{BufReader, Result};
+
+    #[test]
+    fn csa_to_jkf() -> Result<()> {
+        let dir = Path::new("data/tests/csa");
+        for entry in dir.read_dir()? {
+            // Parse and convert CSA to JKF
+            let mut path = entry?.path();
+            if path.extension() != Some(OsStr::new("csa")) {
+                continue;
+            }
+            let jkf = parse_csa_file(&path).expect("failed to parse csa");
+
+            // Load exptected JSON
+            assert!(path.set_extension("json"));
+            let file = File::open(&path)?;
+            let mut expected = serde_json::from_reader::<_, JsonKifFormat>(BufReader::new(file))
+                .expect("failed to parse json");
+            // Remove all move comments (they cannot be restored from csa...)
+            expected.moves.iter_mut().for_each(|m| m.comments = None);
+
+            assert_eq!(expected, jkf, "different from expected: {}", path.display());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn kif_to_jkf() -> Result<()> {
+        let dir = Path::new("data/tests/kif");
+        for entry in dir.read_dir()? {
+            // Parse and convert KIF to JKF, and serialize to Value
+            let mut path = entry?.path();
+            if path.extension() != Some(OsStr::new("kif")) {
+                continue;
+            }
+            let jkf = parse_kif_file(&path).expect("failed to parse kif");
+            let val = serde_json::to_value(&jkf).expect("failed to serialize jkf");
+
+            // Load exptected JSON Value
+            assert!(path.set_extension("json"));
+            let file = File::open(&path)?;
+            let expected = serde_json::from_reader::<_, Value>(BufReader::new(file))
+                .expect("failed to parse json");
+
+            assert_eq!(expected, val, "different from expected: {}", path.display());
+        }
+        Ok(())
+    }
+}

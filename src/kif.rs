@@ -1,11 +1,11 @@
-use crate::jkf::{Color, Hand, Initial, JsonKifFormat, Kind, Piece, Preset, StateFormat};
+use crate::jkf::*;
 use nom::branch::alt;
 use nom::bytes::complete::{is_not, tag};
 use nom::character::complete::{line_ending, not_line_ending, one_of};
 use nom::combinator::{map, opt, value};
 use nom::error::VerboseError;
 use nom::multi::{count, many0};
-use nom::sequence::{delimited, pair, preceded, separated_pair, terminated};
+use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
 use nom::IResult;
 use std::collections::HashMap;
 
@@ -49,19 +49,17 @@ fn piece_kind(input: &str) -> IResult<&str, Kind, VerboseError<&str>> {
     ))(input)
 }
 
+fn board_piece_color(input: &str) -> IResult<&str, Color, VerboseError<&str>> {
+    alt((value(Color::Black, tag(" ")), value(Color::White, tag("v"))))(input)
+}
+
 fn board_piece(input: &str) -> IResult<&str, Piece, VerboseError<&str>> {
     alt((
         value(Piece::empty(), tag(" ・")),
-        map(
-            pair(
-                alt((value(Color::Black, tag(" ")), value(Color::White, tag("v")))),
-                piece_kind,
-            ),
-            |(c, k)| Piece {
-                color: Some(c),
-                kind: Some(k),
-            },
-        ),
+        map(pair(board_piece_color, piece_kind), |(c, k)| Piece {
+            color: Some(c),
+            kind: Some(k),
+        }),
     ))(input)
 }
 
@@ -78,10 +76,10 @@ fn board_row(input: &str) -> IResult<&str, Vec<Piece>, VerboseError<&str>> {
 
 fn board(input: &str) -> IResult<&str, [[Piece; 9]; 9], VerboseError<&str>> {
     delimited(
-        pair(
+        tuple((
             terminated(tag("  ９ ８ ７ ６ ５ ４ ３ ２ １"), line_ending),
             terminated(tag("+---------------------------+"), line_ending),
-        ),
+        )),
         map(count(board_row, 9), |v| {
             let mut ret = [[Piece::empty(); 9]; 9];
             for (i, row) in v.into_iter().enumerate() {
@@ -102,7 +100,6 @@ pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifFormat, VerboseError<&s
     let (input, opt_board) = opt(board)(input)?;
     let (input, info) = informations(input)?;
     header.extend(info);
-    println!("{input}");
 
     let color = Color::Black; // TODO
     let hands = [Hand::default(); 2]; // TODO
@@ -116,18 +113,33 @@ pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifFormat, VerboseError<&s
             }),
         })
     } else {
-        // TODO
-        Some(Initial {
-            preset: Preset::PresetHirate,
-            data: None,
-        })
+        let preset = match header.remove(&String::from("手合割")).as_deref() {
+            Some("香落ち") => Preset::PresetKY,
+            Some("右香落ち") => Preset::PresetKYR,
+            Some("角落ち") => Preset::PresetKA,
+            Some("飛車落ち") => Preset::PresetHI,
+            Some("飛香落ち") => Preset::PresetHIKY,
+            Some("二枚落ち") => Preset::Preset2,
+            Some("三枚落ち") => Preset::Preset3,
+            Some("四枚落ち") => Preset::Preset4,
+            Some("五枚落ち") => Preset::Preset5,
+            Some("左五枚落ち") => Preset::Preset5L,
+            Some("六枚落ち") => Preset::Preset6,
+            Some("左七枚落ち") => Preset::Preset7L,
+            Some("右七枚落ち") => Preset::Preset7R,
+            Some("八枚落ち") => Preset::Preset8,
+            Some("十枚落ち") => Preset::Preset10,
+            _ => Preset::PresetHirate,
+        };
+        Some(Initial { preset, data: None })
     };
+    let moves = Vec::new();
     Ok((
         input,
         JsonKifFormat {
             header,
             initial,
-            moves: Vec::new(),
+            moves,
         },
     ))
 }
