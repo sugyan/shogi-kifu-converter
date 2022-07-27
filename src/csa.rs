@@ -7,7 +7,7 @@ use std::time::Duration;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum CsaConverterError {
+pub enum CsaConvertError {
     #[error("Zero Square")]
     SquareZero,
     #[error("AL PieceType")]
@@ -149,7 +149,7 @@ impl From<Position> for Initial {
 }
 
 impl TryFrom<csa::MoveRecord> for MoveFormat {
-    type Error = CsaConverterError;
+    type Error = CsaConvertError;
 
     fn try_from(m: csa::MoveRecord) -> Result<Self, Self::Error> {
         let time = m.time.map(|d| Time {
@@ -214,11 +214,11 @@ impl From<Duration> for TimeFormat {
 }
 
 impl TryFrom<csa::Square> for PlaceFormat {
-    type Error = CsaConverterError;
+    type Error = CsaConvertError;
 
     fn try_from(sq: csa::Square) -> Result<Self, Self::Error> {
         if sq.file == 0 && sq.rank == 0 {
-            Err(CsaConverterError::SquareZero)
+            Err(CsaConvertError::SquareZero)
         } else {
             Ok(PlaceFormat {
                 x: sq.file,
@@ -229,7 +229,7 @@ impl TryFrom<csa::Square> for PlaceFormat {
 }
 
 impl TryFrom<csa::PieceType> for Kind {
-    type Error = CsaConverterError;
+    type Error = CsaConvertError;
 
     fn try_from(pt: csa::PieceType) -> Result<Self, Self::Error> {
         match pt {
@@ -247,7 +247,7 @@ impl TryFrom<csa::PieceType> for Kind {
             csa::PieceType::ProSilver => Ok(Kind::NG),
             csa::PieceType::Horse => Ok(Kind::UM),
             csa::PieceType::Dragon => Ok(Kind::RY),
-            csa::PieceType::All => Err(CsaConverterError::PieceTypeAll),
+            csa::PieceType::All => Err(CsaConvertError::PieceTypeAll),
         }
     }
 }

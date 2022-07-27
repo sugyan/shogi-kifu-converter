@@ -1,4 +1,4 @@
-use crate::csa::CsaConverterError;
+use crate::csa::CsaConvertError;
 use crate::normalizer::NormalizerError;
 use std::io;
 use thiserror::Error;
@@ -10,7 +10,13 @@ pub enum ConvertError {
     #[error("CSA Error: {0}")]
     Csa(#[from] csa::CsaError),
     #[error("CSA converter Error: {0}")]
-    CsaConverter(#[from] CsaConverterError),
+    CsaConvert(#[from] CsaConvertError),
+    #[error("KIF Error: {0}")]
+    KifError(String),
     #[error("Normalization Error: {0}")]
     Normalizer(#[from] NormalizerError),
+    #[error("Decode Error")]
+    DecodeError,
+    #[error("File extension Error")]
+    FileExtensionError,
 }
