@@ -181,8 +181,8 @@ fn move_special(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
 
 fn move_move(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
     map(
-        tuple((move_to, piece_kind, move_from)),
-        |(to, kind, from)| {
+        tuple((move_to, piece_kind, opt(tag("成")), move_from)),
+        |(to, kind, promote, from)| {
             MoveFormat {
                 move_: Some(MoveMoveFormat {
                     color: Color::Black, // To be replaced
@@ -190,7 +190,7 @@ fn move_move(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
                     to: to.unwrap_or_default(), // Might be (0, 0) if it's the same place as previous
                     piece: kind,
                     same: if to.is_none() { Some(true) } else { None },
-                    promote: None,
+                    promote: promote.map(|_| true),
                     capture: None,
                     relative: None,
                 }),
@@ -240,7 +240,7 @@ fn move_line(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
                 preceded(space0, alt((move_special, move_move))),
                 preceded(space0, opt(move_time)),
             )),
-            line_ending,
+            preceded(not_line_ending, line_ending),
         ),
         |(i, mut mf, time): (u32, _, _)| {
             if let Some(mmf) = mf.move_.as_mut() {
@@ -517,6 +517,49 @@ mod tests {
                 }
             )),
             move_time_format(" 0:00:19")
+        );
+    }
+
+    #[test]
+    fn parse_move_move() {
+        assert!(move_move("").is_err());
+        assert_eq!(
+            Ok((
+                "",
+                MoveFormat {
+                    move_: Some(MoveMoveFormat {
+                        color: Color::Black,
+                        from: Some(PlaceFormat { x: 7, y: 7 }),
+                        to: PlaceFormat { x: 7, y: 6 },
+                        piece: Kind::FU,
+                        same: None,
+                        promote: None,
+                        capture: None,
+                        relative: None,
+                    }),
+                    ..Default::default()
+                }
+            )),
+            move_move("７六歩(77)")
+        );
+        assert_eq!(
+            Ok((
+                "",
+                MoveFormat {
+                    move_: Some(MoveMoveFormat {
+                        color: Color::Black,
+                        from: Some(PlaceFormat { x: 3, y: 1 }),
+                        to: PlaceFormat { x: 4, y: 2 },
+                        piece: Kind::KA,
+                        same: None,
+                        promote: Some(true),
+                        capture: None,
+                        relative: None,
+                    }),
+                    ..Default::default()
+                }
+            )),
+            move_move("４二角成(31)")
         );
     }
 
