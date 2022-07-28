@@ -1,5 +1,6 @@
 use crate::jkf::*;
-use shogi_core::{LegalityChecker, PartialPosition};
+use crate::shogi_core::CoreConvertError;
+use shogi_core::{LegalityChecker, PartialPosition, PieceKind};
 use shogi_legality_lite::LiteLegalityChecker;
 use std::cmp::Ordering;
 use std::ops::AddAssign;
@@ -7,12 +8,8 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum NormalizerError {
-    #[error("Invalid Place: {0:?}")]
-    InvalidPlace((u8, u8)),
-    #[error("Invalid initial board: no data with preset `OTHER`")]
-    InitialBoardNoDataWithPresetOTHER,
-    #[error("Invalid initial hands: {0:?}")]
-    InitialHands(Kind),
+    #[error("Convert Error: {0}")]
+    CoreConvert(#[from] CoreConvertError),
     #[error("Invalid move: {0}")]
     MoveInconsistent(&'static str),
     #[error("Invalid Move")]
@@ -212,60 +209,6 @@ impl AddAssign for TimeFormat {
     }
 }
 
-impl TryFrom<MoveMoveFormat> for shogi_core::Move {
-    type Error = NormalizerError;
-
-    fn try_from(mmf: MoveMoveFormat) -> Result<Self, Self::Error> {
-        if let Some(from) = mmf.from {
-            Ok(shogi_core::Move::Normal {
-                from: from.try_into()?,
-                to: mmf.to.try_into()?,
-                promote: mmf.promote.unwrap_or_default(),
-            })
-        } else {
-            Ok(shogi_core::Move::Drop {
-                piece: mmf.into(),
-                to: mmf.to.try_into()?,
-            })
-        }
-    }
-}
-
-impl TryFrom<PlaceFormat> for shogi_core::Square {
-    type Error = NormalizerError;
-
-    fn try_from(pf: PlaceFormat) -> Result<Self, Self::Error> {
-        shogi_core::Square::new(pf.x, pf.y).ok_or(NormalizerError::InvalidPlace((pf.x, pf.y)))
-    }
-}
-
-impl From<MoveMoveFormat> for shogi_core::Piece {
-    fn from(mmf: MoveMoveFormat) -> Self {
-        shogi_core::Piece::new(mmf.piece.into(), mmf.color.into())
-    }
-}
-
-impl From<Kind> for shogi_core::PieceKind {
-    fn from(piece: Kind) -> Self {
-        match piece {
-            Kind::FU => shogi_core::PieceKind::Pawn,
-            Kind::KY => shogi_core::PieceKind::Lance,
-            Kind::KE => shogi_core::PieceKind::Knight,
-            Kind::GI => shogi_core::PieceKind::Silver,
-            Kind::KI => shogi_core::PieceKind::Gold,
-            Kind::KA => shogi_core::PieceKind::Bishop,
-            Kind::HI => shogi_core::PieceKind::Rook,
-            Kind::OU => shogi_core::PieceKind::King,
-            Kind::TO => shogi_core::PieceKind::ProPawn,
-            Kind::NY => shogi_core::PieceKind::ProLance,
-            Kind::NK => shogi_core::PieceKind::ProKnight,
-            Kind::NG => shogi_core::PieceKind::ProSilver,
-            Kind::UM => shogi_core::PieceKind::ProBishop,
-            Kind::RY => shogi_core::PieceKind::ProRook,
-        }
-    }
-}
-
 impl From<shogi_core::PieceKind> for Kind {
     fn from(pk: shogi_core::PieceKind) -> Self {
         match pk {
@@ -287,164 +230,135 @@ impl From<shogi_core::PieceKind> for Kind {
     }
 }
 
-impl From<Color> for shogi_core::Color {
-    fn from(c: Color) -> Self {
-        match c {
-            Color::Black => shogi_core::Color::Black,
-            Color::White => shogi_core::Color::White,
-        }
-    }
-}
-
 pub(crate) fn normalize(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
     normalize_initial(jkf)?;
-    normalize_moves(jkf)?;
+    let pos = if let Some(initial) = jkf.initial {
+        initial.try_into()?
+    } else {
+        PartialPosition::startpos()
+    };
+    normalize_moves(&mut jkf.moves[1..], pos)?;
     Ok(())
 }
 
+fn mmf2move(mmf: MoveMoveFormat) -> Result<shogi_core::Move, NormalizerError> {
+    if let Some(from) = mmf.from {
+        Ok(shogi_core::Move::Normal {
+            from: from.try_into()?,
+            to: mmf.to.try_into()?,
+            promote: mmf.promote.unwrap_or_default(),
+        })
+    } else {
+        Ok(shogi_core::Move::Drop {
+            piece: mmf.into(),
+            to: mmf.to.try_into()?,
+        })
+    }
+}
+
 fn normalize_initial(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
-    if let Some(initial) = jkf.initial {
-        jkf.initial = match initial.data {
-            Some(STATE_HIRATE) => Some(Initial {
+    if let Some(initial) = &mut jkf.initial {
+        *initial = match initial.data {
+            Some(STATE_HIRATE) => Initial {
                 preset: Preset::PresetHirate,
                 data: None,
-            }),
-            Some(STATE_KY) => Some(Initial {
+            },
+            Some(STATE_KY) => Initial {
                 preset: Preset::PresetKY,
                 data: None,
-            }),
-            Some(STATE_KA) => Some(Initial {
+            },
+            Some(STATE_KA) => Initial {
                 preset: Preset::PresetKA,
                 data: None,
-            }),
-            Some(STATE_HI) => Some(Initial {
+            },
+            Some(STATE_HI) => Initial {
                 preset: Preset::PresetHI,
                 data: None,
-            }),
-            Some(STATE_2) => Some(Initial {
+            },
+            Some(STATE_2) => Initial {
                 preset: Preset::Preset2,
                 data: None,
-            }),
-            Some(STATE_4) => Some(Initial {
+            },
+            Some(STATE_4) => Initial {
                 preset: Preset::Preset4,
                 data: None,
-            }),
-            Some(STATE_6) => Some(Initial {
+            },
+            Some(STATE_6) => Initial {
                 preset: Preset::Preset6,
                 data: None,
-            }),
-            _ => jkf.initial,
+            },
+            _ => *initial,
         };
     }
     Ok(())
 }
 
-fn normalize_moves(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
-    let mut pos = if let Some(initial) = jkf.initial {
-        match initial.preset {
-            Preset::PresetHirate => PartialPosition::startpos(),
-            Preset::PresetOther => {
-                let data = initial
-                    .data
-                    .ok_or(NormalizerError::InitialBoardNoDataWithPresetOTHER)?;
-                let mut pos = PartialPosition::empty();
-                // Board
-                for (i, v) in data.board.iter().enumerate() {
-                    for (j, p) in v.iter().enumerate() {
-                        let sq = PlaceFormat {
-                            x: i as u8 + 1,
-                            y: j as u8 + 1,
-                        }
-                        .try_into()?;
-                        if let (Some(kind), Some(color)) = (p.kind, p.color) {
-                            pos.piece_set(
-                                sq,
-                                Some(shogi_core::Piece::new(kind.into(), color.into())),
-                            );
-                        }
-                    }
-                }
-                // Hands
-                for (hand, c) in data.hands.iter().zip(shogi_core::Color::all()) {
-                    let h = pos.hand_of_a_player_mut(c);
-                    for (num, pk) in [
-                        (hand.FU, shogi_core::PieceKind::Pawn),
-                        (hand.KY, shogi_core::PieceKind::Lance),
-                        (hand.KE, shogi_core::PieceKind::Knight),
-                        (hand.GI, shogi_core::PieceKind::Silver),
-                        (hand.KI, shogi_core::PieceKind::Gold),
-                        (hand.KA, shogi_core::PieceKind::Bishop),
-                        (hand.HI, shogi_core::PieceKind::Rook),
-                    ] {
-                        for _ in 0..num {
-                            *h = h
-                                .added(pk)
-                                .ok_or_else(|| NormalizerError::InitialHands(pk.into()))?;
-                        }
-                    }
-                }
-                // Color
-                pos.side_to_move_set(data.color.into());
-                pos
-            }
-            _ => {
-                let mut pos = PartialPosition::startpos();
-                pos.side_to_move_set(shogi_core::Color::White);
-                // TODO
-                pos
+fn normalize_moves(
+    moves: &mut [MoveFormat],
+    mut pos: PartialPosition,
+) -> Result<(), NormalizerError> {
+    let mut totals = [TimeFormat::default(); 2];
+    for mf in moves {
+        // Normalize forks
+        if let Some(forks) = mf.forks.as_mut() {
+            for v in forks.iter_mut() {
+                normalize_moves(v, pos.clone())?;
             }
         }
-    } else {
-        PartialPosition::startpos()
-    };
-
-    let mut totals = [TimeFormat::default(); 2];
-    let mut to_prev = None;
-    for mf in jkf.moves[1..].iter_mut() {
         // Calculate total time
         if let Some(time) = &mut mf.time {
             totals[pos.side_to_move().array_index()] += time.now;
             time.total = totals[pos.side_to_move().array_index()];
         }
-        if let Some(m) = &mut mf.move_ {
-            if m.same.is_some() {
-                m.to = to_prev.ok_or(NormalizerError::InvalidPlace((0, 0)))?
+        if let Some(mmf) = &mut mf.move_ {
+            if mmf.same.is_some() {
+                mmf.to = pos
+                    .last_move()
+                    .map(|mv| PlaceFormat {
+                        x: mv.to().file(),
+                        y: mv.to().rank(),
+                    })
+                    .ok_or(CoreConvertError::InvalidPlace((0, 0)))?
             }
-            let to: shogi_core::Square = m.to.try_into()?;
-            to_prev = Some(m.to);
-            if let Some(from) = m.from {
-                let from: shogi_core::Square = from.try_into()?;
+            let to = shogi_core::Square::try_from(mmf.to)?;
+            if let Some(from) = mmf.from {
+                let from = from.try_into()?;
                 // Retrieve piece
                 let piece = pos
                     .piece_at(from)
                     .ok_or(NormalizerError::MoveInconsistent("no piece to move found"))?;
                 let from_piece_kind = piece.piece_kind();
-                let to_piece_kind = m.piece.into();
-                m.piece = from_piece_kind.into();
+                let to_piece_kind = if mmf.promote.is_some() {
+                    let pk = PieceKind::from(mmf.piece);
+                    pk.promote().unwrap_or(pk)
+                } else {
+                    mmf.piece.into()
+                };
+                mmf.piece = from_piece_kind.into();
                 // Set same?
                 if pos
                     .last_move()
                     .map(|last| to == last.to())
                     .unwrap_or_default()
                 {
-                    m.same = Some(true);
+                    mmf.same = Some(true);
                 }
                 // Set promote?
                 if from_piece_kind.unpromote().is_none()
                     && (from.relative_rank(pos.side_to_move()) <= 3
                         || to.relative_rank(pos.side_to_move()) <= 3)
                 {
-                    m.promote = Some(from_piece_kind != to_piece_kind)
+                    mmf.promote = Some(from_piece_kind != to_piece_kind)
                 }
                 // Set capture?
                 if let Some(p) = pos.piece_at(to) {
-                    m.capture = Some(p.piece_kind().into());
+                    mmf.capture = Some(p.piece_kind().into());
                 }
                 // Set relative?
                 // TODO
                 let candidates = LiteLegalityChecker.normal_to_candidates(&pos, to, piece);
                 if candidates.count() > 1 {
-                    m.relative = Some(
+                    mmf.relative = Some(
                         match from
                             .relative_file(pos.side_to_move())
                             .cmp(&to.relative_file(pos.side_to_move()))
@@ -458,7 +372,7 @@ fn normalize_moves(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
             } else {
                 // TODO
             }
-            pos.make_move((*m).try_into()?)
+            pos.make_move(mmf2move(*mmf)?)
                 .ok_or(NormalizerError::MoveError)?;
         } else {
             break;

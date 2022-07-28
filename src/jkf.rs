@@ -212,10 +212,11 @@ pub struct TimeFormat {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::{parse_csa_file, parse_kif_file};
     use jsonschema::JSONSchema;
     use std::ffi::OsStr;
     use std::fs::{DirEntry, File};
-    use std::io::{BufReader, Read, Result};
+    use std::io::{BufReader, Result};
     use std::path::Path;
 
     fn load_schema() -> Result<JSONSchema> {
@@ -274,26 +275,24 @@ mod tests {
     }
 
     #[test]
-    fn validate_from_csa_files() -> Result<()> {
+    fn validate_from_files() -> Result<()> {
         let schema = load_schema()?;
 
-        for entry in Path::new("data/tests/csa").read_dir()? {
-            let path = entry?.path();
-            if path.extension() == Some(OsStr::new("csa")) {
-                let mut file = File::open(&path)?;
-                let mut buf = String::new();
-                file.read_to_string(&mut buf)?;
-                let record = csa::parse_csa(&buf).expect("failed to parse csa");
-                let jkf: JsonKifFormat = record.try_into().expect("failed to convert csa to jkf");
-                let value = serde_json::to_value(&jkf).expect("failed to serialize");
-                let result = schema.validate(&value);
-                if let Err(errors) = result {
-                    for err in errors {
-                        panic!("error on {}: {:?}", path.display(), err);
-                    }
+        visit_dirs(Path::new("data/tests"), &|entry: &DirEntry| -> Result<()> {
+            let path = entry.path();
+            let jkf = match path.extension().and_then(|s| s.to_str()) {
+                Some("csa") => parse_csa_file(&path).expect("failed to parse csa file"),
+                Some("kif") => parse_kif_file(&path).expect("failed to parse kif file"),
+                _ => return Ok(()),
+            };
+            let value = serde_json::to_value(&jkf).expect("failed to serialize");
+            let result = schema.validate(&value);
+            if let Err(errors) = result {
+                for err in errors {
+                    panic!("error on {}: {:?}", path.display(), err);
                 }
             }
-        }
-        Ok(())
+            Ok(())
+        })
     }
 }
