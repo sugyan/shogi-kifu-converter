@@ -84,6 +84,38 @@ pub enum Relative {
     H, // 打
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum MoveSpecial {
+    #[serde(rename = "TORYO")]
+    SpecialToryo, // 投了
+    #[serde(rename = "CHUDAN")]
+    SpecialChudan, // 中断
+    #[serde(rename = "SENNICHITE")]
+    SpecialSennichite, // 千日手
+    #[serde(rename = "TIME_UP")]
+    SpecialTimeUp, // 手番側が時間切れで負け、切れ負け
+    #[serde(rename = "ILLEGAL_MOVE")]
+    SpecialIllegalMove, // 反則負け
+    #[serde(rename = "+ILLEGAL_ACTION")]
+    SpecialIllegalActionBlack, // 先手(下手)の反則行為により、後手(上手)の勝ち
+    #[serde(rename = "-ILLEGAL_ACTION")]
+    SpecialIllegalActionWhite, // 後手(上手)の反則行為により、先手(下手)の勝ち
+    #[serde(rename = "JISHOGI")]
+    SpecialJishogi, // 持将棋
+    #[serde(rename = "KACHI")]
+    SpecialKachi, // (入玉で)勝ちの宣言
+    #[serde(rename = "HIKIWAKE")]
+    SpecialHikiwake, // (入玉で)引き分けの宣言
+    #[serde(rename = "MATTA")]
+    SpecialMatta, // 待った
+    #[serde(rename = "TSUMI")]
+    SpecialTsumi, // 詰み
+    #[serde(rename = "FUZUMI")]
+    SpecialFuzumi, // 不詰
+    #[serde(rename = "ERROR")]
+    SpecialError, // エラー
+}
+
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq)]
 pub struct JsonKifFormat {
     pub header: HashMap<String, String>,
@@ -135,7 +167,7 @@ pub struct MoveFormat {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub time: Option<Time>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub special: Option<String>,
+    pub special: Option<MoveSpecial>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]

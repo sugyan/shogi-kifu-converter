@@ -153,36 +153,64 @@ fn move_to(input: &str) -> IResult<&str, Option<PlaceFormat>, VerboseError<&str>
     ))(input)
 }
 
-fn move_move(input: &str) -> IResult<&str, MoveMoveFormat, VerboseError<&str>> {
+fn move_special(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
+    map(
+        alt((
+            value(MoveSpecial::SpecialToryo, tag("投了")),
+            value(MoveSpecial::SpecialChudan, tag("中断")),
+            value(MoveSpecial::SpecialSennichite, tag("千日手")),
+            value(MoveSpecial::SpecialTimeUp, tag("切れ負け")),
+            value(MoveSpecial::SpecialIllegalMove, tag("反則負け")),
+            value(MoveSpecial::SpecialJishogi, tag("持将棋")),
+            value(MoveSpecial::SpecialKachi, tag("入玉勝ち")),
+            value(MoveSpecial::SpecialTsumi, tag("詰み")),
+        )),
+        |special| MoveFormat {
+            special: Some(special),
+            ..Default::default()
+        },
+    )(input)
+}
+
+fn move_move(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
     map(
         tuple((move_to, piece_kind, move_from)),
         |(to, kind, from)| {
-            MoveMoveFormat {
-                color: Color::Black, // To be replaced
-                from,
-                to: to.unwrap_or_default(), // Might be (0, 0) if it's the same place as previous
-                piece: kind,
-                same: if to.is_none() { Some(true) } else { None },
-                promote: None,
-                capture: None,
-                relative: None,
+            MoveFormat {
+                move_: Some(MoveMoveFormat {
+                    color: Color::Black, // To be replaced
+                    from,
+                    to: to.unwrap_or_default(), // Might be (0, 0) if it's the same place as previous
+                    piece: kind,
+                    same: if to.is_none() { Some(true) } else { None },
+                    promote: None,
+                    capture: None,
+                    relative: None,
+                }),
+                ..Default::default()
             }
         },
     )(input)
 }
 
 fn move_time_format(input: &str) -> IResult<&str, TimeFormat, VerboseError<&str>> {
-    map(
-        tuple((
-            opt(terminated(map_res(digit1, str::parse), tag(":"))),
-            separated_pair(
+    alt((
+        map(
+            tuple((
+                delimited(space0, map_res(digit1, str::parse), tag(":")),
+                delimited(space0, map_res(digit1, str::parse), tag(":")),
                 preceded(space0, map_res(digit1, str::parse)),
-                tag(":"),
-                map_res(digit1, str::parse),
-            ),
-        )),
-        |(h, (m, s))| TimeFormat { h, m, s },
-    )(input)
+            )),
+            |(h, m, s)| TimeFormat { h: Some(h), m, s },
+        ),
+        map(
+            tuple((
+                delimited(space0, map_res(digit1, str::parse), tag(":")),
+                preceded(space0, map_res(digit1, str::parse)),
+            )),
+            |(m, s)| TimeFormat { h: None, m, s },
+        ),
+    ))(input)
 }
 
 fn move_time(input: &str) -> IResult<&str, Time, VerboseError<&str>> {
@@ -202,22 +230,21 @@ fn move_line(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
             space0,
             tuple((
                 preceded(space0, map_res(digit1, str::parse)),
-                preceded(space0, move_move),
+                preceded(space0, alt((move_special, move_move))),
                 preceded(space0, opt(move_time)),
             )),
             line_ending,
         ),
-        |(i, mut mmf, time): (u32, _, _)| {
-            mmf.color = if i % 2 == 1 {
-                Color::Black
-            } else {
-                Color::White
-            };
-            MoveFormat {
-                move_: Some(mmf),
-                time,
-                ..Default::default()
+        |(i, mut mf, time): (u32, _, _)| {
+            if let Some(mmf) = mf.move_.as_mut() {
+                mmf.color = if i % 2 == 1 {
+                    Color::Black
+                } else {
+                    Color::White
+                };
             }
+            mf.time = time;
+            mf
         },
     )(input)
 }
@@ -448,6 +475,44 @@ mod tests {
     }
 
     #[test]
+    fn parse_move_time_format() {
+        assert!(move_time_format("").is_err());
+        assert_eq!(
+            Ok((
+                "",
+                TimeFormat {
+                    h: None,
+                    m: 0,
+                    s: 16
+                }
+            )),
+            move_time_format(" 0:16")
+        );
+        assert_eq!(
+            Ok((
+                "",
+                TimeFormat {
+                    h: Some(0),
+                    m: 0,
+                    s: 16
+                }
+            )),
+            move_time_format("00:00:16")
+        );
+        assert_eq!(
+            Ok((
+                "",
+                TimeFormat {
+                    h: Some(0),
+                    m: 0,
+                    s: 19
+                }
+            )),
+            move_time_format(" 0:00:19")
+        );
+    }
+
+    #[test]
     fn parse_move_line() {
         assert!(move_line("").is_err());
         assert_eq!(
@@ -482,17 +547,109 @@ mod tests {
             )),
             move_line("1 ７六歩(77) ( 0:16/00:00:16)\n")
         );
+        assert_eq!(
+            Ok((
+                "",
+                MoveFormat {
+                    move_: None,
+                    comments: None,
+                    time: Some(Time {
+                        now: TimeFormat {
+                            h: None,
+                            m: 0,
+                            s: 3
+                        },
+                        total: TimeFormat {
+                            h: Some(0),
+                            m: 0,
+                            s: 19
+                        }
+                    }),
+                    special: Some(MoveSpecial::SpecialChudan)
+                }
+            )),
+            move_line("3 中断 ( 0:03/ 0:00:19)\n")
+        );
     }
 
-    // #[test]
+    #[test]
     fn parse_moves() {
-        let input = &r#"
-1 ７六歩(77) ( 0:16/00:00:16)
-2 ３四歩(33) ( 0:00/00:00:00)
-3 中断 ( 0:03/ 0:00:19)
-"#[1..];
         assert_eq!(
-            Ok(("", vec![MoveFormat::default()])),
+            Ok((
+                "",
+                vec![
+                    MoveFormat::default(),
+                    MoveFormat {
+                        move_: Some(MoveMoveFormat {
+                            color: Color::Black,
+                            from: Some(PlaceFormat { x: 7, y: 7 }),
+                            to: PlaceFormat { x: 7, y: 6 },
+                            piece: Kind::FU,
+                            same: None,
+                            promote: None,
+                            capture: None,
+                            relative: None,
+                        }),
+                        comments: None,
+                        time: Some(Time {
+                            now: TimeFormat {
+                                h: None,
+                                m: 0,
+                                s: 16
+                            },
+                            total: TimeFormat {
+                                h: Some(0),
+                                m: 0,
+                                s: 16
+                            }
+                        }),
+                        special: None,
+                    },
+                    MoveFormat {
+                        move_: Some(MoveMoveFormat {
+                            color: Color::White,
+                            from: Some(PlaceFormat { x: 3, y: 3 }),
+                            to: PlaceFormat { x: 3, y: 4 },
+                            piece: Kind::FU,
+                            same: None,
+                            promote: None,
+                            capture: None,
+                            relative: None,
+                        }),
+                        comments: None,
+                        time: Some(Time {
+                            now: TimeFormat {
+                                h: None,
+                                m: 0,
+                                s: 0
+                            },
+                            total: TimeFormat {
+                                h: Some(0),
+                                m: 0,
+                                s: 0
+                            }
+                        }),
+                        special: None,
+                    },
+                    MoveFormat {
+                        move_: None,
+                        comments: None,
+                        time: Some(Time {
+                            now: TimeFormat {
+                                h: None,
+                                m: 0,
+                                s: 3
+                            },
+                            total: TimeFormat {
+                                h: Some(0),
+                                m: 0,
+                                s: 19
+                            }
+                        }),
+                        special: Some(MoveSpecial::SpecialChudan),
+                    },
+                ]
+            )),
             moves(
                 &r#"
 1 ７六歩(77) ( 0:16/00:00:16)

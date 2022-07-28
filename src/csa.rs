@@ -152,10 +152,6 @@ impl TryFrom<csa::MoveRecord> for MoveFormat {
     type Error = CsaConvertError;
 
     fn try_from(m: csa::MoveRecord) -> Result<Self, Self::Error> {
-        let time = m.time.map(|d| Time {
-            now: d.into(),
-            total: TimeFormat::default(),
-        });
         match m.action {
             csa::Action::Move(c, from, to, pt) => Ok(MoveFormat {
                 move_: Some(MoveMoveFormat {
@@ -168,15 +164,67 @@ impl TryFrom<csa::MoveRecord> for MoveFormat {
                     capture: None,
                     relative: None,
                 }),
-                comments: None,
-                time,
-                special: None,
+                time: m.time.map(|d| Time {
+                    now: d.into(),
+                    total: TimeFormat::default(),
+                }),
+                ..Default::default()
             }),
-            action => Ok(MoveFormat {
-                move_: None,
-                comments: None,
-                time,
-                special: Some(String::from(&action.to_string()[1..])),
+            csa::Action::Toryo => Ok(MoveFormat {
+                special: Some(MoveSpecial::SpecialToryo),
+                ..Default::default()
+            }),
+            csa::Action::Chudan => Ok(MoveFormat {
+                special: Some(MoveSpecial::SpecialChudan),
+                ..Default::default()
+            }),
+            csa::Action::Sennichite => Ok(MoveFormat {
+                special: Some(MoveSpecial::SpecialSennichite),
+                ..Default::default()
+            }),
+            csa::Action::TimeUp => Ok(MoveFormat {
+                special: Some(MoveSpecial::SpecialTimeUp),
+                ..Default::default()
+            }),
+            csa::Action::IllegalMove => Ok(MoveFormat {
+                special: Some(MoveSpecial::SpecialIllegalMove),
+                ..Default::default()
+            }),
+            csa::Action::IllegalAction(csa::Color::Black) => Ok(MoveFormat {
+                special: Some(MoveSpecial::SpecialIllegalActionBlack),
+                ..Default::default()
+            }),
+            csa::Action::IllegalAction(csa::Color::White) => Ok(MoveFormat {
+                special: Some(MoveSpecial::SpecialIllegalActionWhite),
+                ..Default::default()
+            }),
+            csa::Action::Jishogi => Ok(MoveFormat {
+                special: Some(MoveSpecial::SpecialJishogi),
+                ..Default::default()
+            }),
+            csa::Action::Kachi => Ok(MoveFormat {
+                special: Some(MoveSpecial::SpecialKachi),
+                ..Default::default()
+            }),
+            csa::Action::Hikiwake => Ok(MoveFormat {
+                special: Some(MoveSpecial::SpecialHikiwake),
+                ..Default::default()
+            }),
+            csa::Action::Matta => Ok(MoveFormat {
+                special: Some(MoveSpecial::SpecialMatta),
+                ..Default::default()
+            }),
+            csa::Action::Tsumi => Ok(MoveFormat {
+                special: Some(MoveSpecial::SpecialTsumi),
+                ..Default::default()
+            }),
+            csa::Action::Fuzumi => Ok(MoveFormat {
+                special: Some(MoveSpecial::SpecialFuzumi),
+                ..Default::default()
+            }),
+            csa::Action::Error => Ok(MoveFormat {
+                special: Some(MoveSpecial::SpecialError),
+                ..Default::default()
             }),
         }
     }
