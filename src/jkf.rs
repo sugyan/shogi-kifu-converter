@@ -168,6 +168,8 @@ pub struct MoveFormat {
     pub time: Option<Time>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub special: Option<MoveSpecial>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forks: Option<Vec<Vec<MoveFormat>>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]

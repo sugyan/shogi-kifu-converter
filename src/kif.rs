@@ -16,6 +16,13 @@ fn comment_line(input: &str) -> IResult<&str, String, VerboseError<&str>> {
     )(input)
 }
 
+fn move_comment_line(input: &str) -> IResult<&str, String, VerboseError<&str>> {
+    map(
+        delimited(tag("*"), not_line_ending, line_ending),
+        String::from,
+    )(input)
+}
+
 fn information_line(input: &str) -> IResult<&str, (String, String), VerboseError<&str>> {
     map(
         preceded(
@@ -250,18 +257,19 @@ fn move_line(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
 }
 
 fn move_with_comments(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
-    map(pair(move_line, many0(comment_line)), |(mf, comments)| {
-        MoveFormat {
+    map(
+        pair(move_line, many0(move_comment_line)),
+        |(mf, comments)| MoveFormat {
             comments: Some(comments).filter(|v| !v.is_empty()),
             ..mf
-        }
-    })(input)
+        },
+    )(input)
 }
 
 fn moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
     map(
         pair(
-            map(many0(comment_line), |comments| MoveFormat {
+            map(many0(move_comment_line), |comments| MoveFormat {
                 comments: Some(comments).filter(|v| !v.is_empty()),
                 ..Default::default()
             }),
@@ -543,6 +551,7 @@ mod tests {
                         }
                     }),
                     special: None,
+                    forks: None,
                 }
             )),
             move_line("1 ７六歩(77) ( 0:16/00:00:16)\n")
@@ -565,7 +574,8 @@ mod tests {
                             s: 19
                         }
                     }),
-                    special: Some(MoveSpecial::SpecialChudan)
+                    special: Some(MoveSpecial::SpecialChudan),
+                    forks: None,
                 }
             )),
             move_line("3 中断 ( 0:03/ 0:00:19)\n")
@@ -604,6 +614,7 @@ mod tests {
                             }
                         }),
                         special: None,
+                        forks: None,
                     },
                     MoveFormat {
                         move_: Some(MoveMoveFormat {
@@ -630,6 +641,7 @@ mod tests {
                             }
                         }),
                         special: None,
+                        forks: None,
                     },
                     MoveFormat {
                         move_: None,
@@ -647,6 +659,7 @@ mod tests {
                             }
                         }),
                         special: Some(MoveSpecial::SpecialChudan),
+                        forks: None,
                     },
                 ]
             )),
@@ -658,5 +671,42 @@ mod tests {
 "#[1..],
             )
         );
+        assert_eq!(
+            Ok((
+                "",
+                vec![
+                    MoveFormat {
+                        comments: Some(vec![String::from("ヒント:こじあける感覚")]),
+                        ..Default::default()
+                    },
+                    MoveFormat {
+                        move_: Some(MoveMoveFormat {
+                            color: Color::Black,
+                            from: Some(PlaceFormat { x: 2, y: 5 }),
+                            to: PlaceFormat { x: 2, y: 4 },
+                            piece: Kind::GI,
+                            same: None,
+                            promote: None,
+                            capture: None,
+                            relative: None,
+                        }),
+                        time: Some(Time {
+                            now: TimeFormat::default(),
+                            total: TimeFormat {
+                                h: Some(0),
+                                ..Default::default()
+                            }
+                        }),
+                        ..Default::default()
+                    },
+                ]
+            )),
+            moves(
+                &r#"
+*ヒント:こじあける感覚
+  1 ２四銀(25)   ( 0:00/00:00:00)
+"#[1..]
+            )
+        )
     }
 }
