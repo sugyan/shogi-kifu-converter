@@ -1,6 +1,7 @@
 use crate::error::ConvertError;
 use crate::jkf::JsonKifFormat;
 use crate::kif;
+use crate::normalizer::normalize;
 use encoding_rs::{SHIFT_JIS, UTF_8};
 use nom::error::convert_error;
 use nom::Finish;
@@ -41,7 +42,10 @@ pub fn parse_kif_file<P: AsRef<Path>>(path: P) -> Result<JsonKifFormat, ConvertE
 
 pub fn parse_kif_str(s: &str) -> Result<JsonKifFormat, ConvertError> {
     match kif::parse(s).finish() {
-        Ok((_, jkf)) => Ok(jkf),
+        Ok((_, mut jkf)) => {
+            normalize(&mut jkf)?;
+            Ok(jkf)
+        }
         Err(err) => Err(ConvertError::KifError(convert_error(s, err))),
     }
 }

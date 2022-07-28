@@ -4,10 +4,18 @@ use nom::bytes::complete::{is_not, tag};
 use nom::character::complete::{digit1, line_ending, none_of, not_line_ending, one_of, space0};
 use nom::combinator::{map, map_res, opt, value};
 use nom::error::VerboseError;
-use nom::multi::{count, many0};
+use nom::multi::{count, many0, many1};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
 use nom::IResult;
 use std::collections::HashMap;
+
+type Forks = Vec<(usize, Vec<MoveFormat>)>;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum InformationValue {
+    String(String),
+    Hand(Hand),
+}
 
 fn comment_line(input: &str) -> IResult<&str, String, VerboseError<&str>> {
     map(
@@ -23,20 +31,79 @@ fn move_comment_line(input: &str) -> IResult<&str, String, VerboseError<&str>> {
     )(input)
 }
 
-fn information_line(input: &str) -> IResult<&str, (String, String), VerboseError<&str>> {
+fn kansuji(input: &str) -> IResult<&str, u8, VerboseError<&str>> {
     map(
-        preceded(
-            many0(comment_line),
-            terminated(
-                separated_pair(is_not("：\r\n"), tag("："), not_line_ending),
-                line_ending,
-            ),
+        pair(
+            map(opt(tag("十")), |x| if x.is_some() { 10 } else { 0 }),
+            alt((
+                value(1, tag("一")),
+                value(2, tag("二")),
+                value(3, tag("三")),
+                value(4, tag("四")),
+                value(5, tag("五")),
+                value(6, tag("六")),
+                value(7, tag("七")),
+                value(8, tag("八")),
+                value(9, tag("九")),
+            )),
         ),
-        |(k, v)| (k.into(), v.into()),
+        |(u0, u1)| u0 + u1,
     )(input)
 }
 
-fn informations(input: &str) -> IResult<&str, HashMap<String, String>, VerboseError<&str>> {
+fn information_value_hand(input: &str) -> IResult<&str, Hand, VerboseError<&str>> {
+    alt((
+        value(Hand::default(), tag("なし")),
+        map(
+            many1(terminated(
+                pair(piece_kind, map(opt(kansuji), |o| o.unwrap_or(1))),
+                opt(tag("　")),
+            )),
+            |v| {
+                v.iter().fold(Hand::default(), |mut acc, &(k, n)| {
+                    match k {
+                        Kind::FU => acc.FU += n,
+                        Kind::KY => acc.KY += n,
+                        Kind::KE => acc.KE += n,
+                        Kind::GI => acc.GI += n,
+                        Kind::KI => acc.KI += n,
+                        Kind::KA => acc.KA += n,
+                        Kind::HI => acc.HI += n,
+                        _ => unreachable!(),
+                    }
+                    acc
+                })
+            },
+        ),
+    ))(input)
+}
+
+fn information_value(input: &str) -> IResult<&str, InformationValue, VerboseError<&str>> {
+    alt((
+        map(information_value_hand, InformationValue::Hand),
+        map(not_line_ending, |s| {
+            InformationValue::String(String::from(s))
+        }),
+    ))(input)
+}
+
+fn information_line(input: &str) -> IResult<&str, (String, InformationValue), VerboseError<&str>> {
+    preceded(
+        many0(comment_line),
+        terminated(
+            separated_pair(
+                map(is_not("：\r\n"), String::from),
+                tag("："),
+                information_value,
+            ),
+            line_ending,
+        ),
+    )(input)
+}
+
+fn informations(
+    input: &str,
+) -> IResult<&str, HashMap<String, InformationValue>, VerboseError<&str>> {
     map(
         preceded(many0(comment_line), many0(information_line)),
         |v| v.into_iter().collect(),
@@ -107,7 +174,7 @@ fn board(input: &str) -> IResult<&str, [[Piece; 9]; 9], VerboseError<&str>> {
 }
 
 fn not_move_line(input: &str) -> IResult<&str, &str, VerboseError<&str>> {
-    delimited(none_of("0123456789*"), not_line_ending, line_ending)(input)
+    delimited(none_of(" 0123456789*"), not_line_ending, line_ending)(input)
 }
 
 fn place_x(input: &str) -> IResult<&str, u8, VerboseError<&str>> {
@@ -231,7 +298,7 @@ fn move_time(input: &str) -> IResult<&str, Time, VerboseError<&str>> {
     )(input)
 }
 
-fn move_line(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
+fn move_line(input: &str) -> IResult<&str, (usize, MoveFormat), VerboseError<&str>> {
     map(
         delimited(
             space0,
@@ -242,58 +309,95 @@ fn move_line(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
             )),
             preceded(not_line_ending, line_ending),
         ),
-        |(i, mut mf, time): (u32, _, _)| {
-            if let Some(mmf) = mf.move_.as_mut() {
-                mmf.color = if i % 2 == 1 {
-                    Color::Black
-                } else {
-                    Color::White
-                };
+        |(i, mut mf, time)| {
+            if let Some(mmf) = &mut mf.move_ {
+                mmf.color = [Color::White, Color::Black][i % 2];
             }
             mf.time = time;
-            mf
+            (i, mf)
         },
     )(input)
 }
 
-fn move_with_comments(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
+fn move_with_comments(input: &str) -> IResult<&str, (usize, MoveFormat), VerboseError<&str>> {
     map(
         pair(move_line, many0(move_comment_line)),
-        |(mf, comments)| MoveFormat {
-            comments: Some(comments).filter(|v| !v.is_empty()),
-            ..mf
+        |((i, mf), comments)| {
+            (
+                i,
+                MoveFormat {
+                    comments: Some(comments).filter(|v| !v.is_empty()),
+                    ..mf
+                },
+            )
         },
     )(input)
 }
 
-fn moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
+fn moves_with_index(input: &str) -> IResult<&str, (usize, Vec<MoveFormat>), VerboseError<&str>> {
+    map(
+        terminated(many1(move_with_comments), opt(not_move_line)),
+        |v| (v[0].0, v.into_iter().map(|(_, mf)| mf).collect()),
+    )(input)
+}
+
+fn main_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
     map(
         pair(
             map(many0(move_comment_line), |comments| MoveFormat {
                 comments: Some(comments).filter(|v| !v.is_empty()),
                 ..Default::default()
             }),
-            many0(move_with_comments),
+            moves_with_index,
         ),
-        |(m0, v)| [vec![m0], v].concat(),
+        |(m0, (_, v))| [vec![m0], v].concat(),
     )(input)
 }
 
+fn fork_moves(input: &str) -> IResult<&str, Forks, VerboseError<&str>> {
+    many0(preceded(many0(not_move_line), moves_with_index))(input)
+}
+
 fn entire_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
-    preceded(many0(not_move_line), moves)(input)
+    map(
+        pair(preceded(many0(not_move_line), main_moves), fork_moves),
+        |(mut moves, forks)| {
+            for (i, fork) in forks {
+                if let Some(v) = &mut moves[i].forks {
+                    v.push(fork);
+                } else {
+                    moves[i].forks = Some(vec![fork]);
+                }
+            }
+            moves
+        },
+    )(input)
 }
 
 pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifFormat, VerboseError<&str>> {
-    let mut header = HashMap::new();
+    let mut hm = HashMap::new();
     let (input, info) = informations(input)?;
-    header.extend(info);
+    hm.extend(info);
     let (input, opt_board) = opt(board)(input)?;
     let (input, info) = informations(input)?;
-    header.extend(info);
+    hm.extend(info);
     let (input, moves) = entire_moves(input)?;
 
+    let mut header = HashMap::new();
+    let mut hands = [Hand::default(); 2];
+    for (k, v) in hm {
+        match v {
+            InformationValue::String(s) => {
+                header.insert(k, s);
+            }
+            InformationValue::Hand(h) => match k.as_str() {
+                "先手の持駒" => hands[0] = h,
+                "後手の持駒" => hands[1] = h,
+                _ => unreachable!(),
+            },
+        }
+    }
     let color = Color::Black; // TODO
-    let hands = [Hand::default(); 2]; // TODO
     let initial = if let Some(board) = opt_board {
         Some(Initial {
             preset: Preset::PresetOther,
@@ -304,7 +408,7 @@ pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifFormat, VerboseError<&s
             }),
         })
     } else {
-        let preset = match header.remove(&String::from("手合割")).as_deref() {
+        let preset = match header.remove("手合割").as_deref() {
             Some("香落ち") => Preset::PresetKY,
             Some("右香落ち") => Preset::PresetKYR,
             Some("角落ち") => Preset::PresetKA,
@@ -351,13 +455,65 @@ mod tests {
     }
 
     #[test]
+    fn parse_information_value() {
+        assert_eq!(
+            Ok(("", InformationValue::String(String::new()))),
+            information_value(""),
+        );
+        assert_eq!(
+            Ok(("", InformationValue::String(String::from("value")))),
+            information_value("value"),
+        );
+        assert_eq!(
+            Ok(("", InformationValue::Hand(Hand::default()))),
+            information_value("なし")
+        );
+        assert_eq!(
+            Ok((
+                "",
+                InformationValue::Hand(Hand {
+                    FU: 15,
+                    KY: 2,
+                    KE: 3,
+                    GI: 2,
+                    KI: 3,
+                    KA: 1,
+                    HI: 0,
+                })
+            )),
+            information_value("角　金三　銀二　桂三　香二　歩十五　")
+        );
+        assert_eq!(
+            Ok((
+                "",
+                InformationValue::Hand(Hand {
+                    FU: 0,
+                    KY: 0,
+                    KE: 1,
+                    GI: 0,
+                    KI: 1,
+                    KA: 0,
+                    HI: 0,
+                })
+            )),
+            information_value("金　桂　")
+        );
+    }
+
+    #[test]
     fn parse_information_line() {
         assert!(information_line("").is_err());
         assert!(information_line("# comment\n").is_err());
         assert!(information_line("# comment：comment\n").is_err());
         assert!(information_line("key：value with not line ending").is_err());
         assert_eq!(
-            Ok(("", (String::from("key"), String::from("value")))),
+            Ok((
+                "",
+                (
+                    String::from("key"),
+                    InformationValue::String(String::from("value"))
+                )
+            )),
             information_line("key：value\n")
         );
     }
@@ -377,9 +533,12 @@ mod tests {
         assert_eq!(
             Ok((
                 "",
-                [(String::from("key"), String::from("value"))]
-                    .into_iter()
-                    .collect::<HashMap<_, _>>()
+                [(
+                    String::from("key"),
+                    InformationValue::String(String::from("value"))
+                )]
+                .into_iter()
+                .collect::<HashMap<_, _>>()
             )),
             informations("key：value\n")
         );
@@ -569,64 +728,70 @@ mod tests {
         assert_eq!(
             Ok((
                 "",
-                MoveFormat {
-                    move_: Some(MoveMoveFormat {
-                        color: Color::Black,
-                        from: Some(PlaceFormat { x: 7, y: 7 }),
-                        to: PlaceFormat { x: 7, y: 6 },
-                        piece: Kind::FU,
-                        same: None,
-                        promote: None,
-                        capture: None,
-                        relative: None,
-                    }),
-                    comments: None,
-                    time: Some(Time {
-                        now: TimeFormat {
-                            h: None,
-                            m: 0,
-                            s: 16
-                        },
-                        total: TimeFormat {
-                            h: Some(0),
-                            m: 0,
-                            s: 16
-                        }
-                    }),
-                    special: None,
-                    forks: None,
-                }
+                (
+                    1,
+                    MoveFormat {
+                        move_: Some(MoveMoveFormat {
+                            color: Color::Black,
+                            from: Some(PlaceFormat { x: 7, y: 7 }),
+                            to: PlaceFormat { x: 7, y: 6 },
+                            piece: Kind::FU,
+                            same: None,
+                            promote: None,
+                            capture: None,
+                            relative: None,
+                        }),
+                        comments: None,
+                        time: Some(Time {
+                            now: TimeFormat {
+                                h: None,
+                                m: 0,
+                                s: 16
+                            },
+                            total: TimeFormat {
+                                h: Some(0),
+                                m: 0,
+                                s: 16
+                            }
+                        }),
+                        special: None,
+                        forks: None,
+                    }
+                )
             )),
             move_line("1 ７六歩(77) ( 0:16/00:00:16)\n")
         );
         assert_eq!(
             Ok((
                 "",
-                MoveFormat {
-                    move_: None,
-                    comments: None,
-                    time: Some(Time {
-                        now: TimeFormat {
-                            h: None,
-                            m: 0,
-                            s: 3
-                        },
-                        total: TimeFormat {
-                            h: Some(0),
-                            m: 0,
-                            s: 19
-                        }
-                    }),
-                    special: Some(MoveSpecial::SpecialChudan),
-                    forks: None,
-                }
+                (
+                    3,
+                    MoveFormat {
+                        move_: None,
+                        comments: None,
+                        time: Some(Time {
+                            now: TimeFormat {
+                                h: None,
+                                m: 0,
+                                s: 3
+                            },
+                            total: TimeFormat {
+                                h: Some(0),
+                                m: 0,
+                                s: 19
+                            }
+                        }),
+                        special: Some(MoveSpecial::SpecialChudan),
+                        forks: None,
+                    }
+                )
             )),
             move_line("3 中断 ( 0:03/ 0:00:19)\n")
         );
     }
 
     #[test]
-    fn parse_moves() {
+    fn parse_main_moves() {
         assert_eq!(
             Ok((
                 "",
@@ -706,7 +871,7 @@ mod tests {
                     },
                 ]
             )),
-            moves(
+            main_moves(
                 &r#"
 1 ７六歩(77) ( 0:16/00:00:16)
 2 ３四歩(33) ( 0:00/00:00:00)
@@ -744,12 +909,54 @@ mod tests {
                     },
                 ]
             )),
-            moves(
+            main_moves(
                 &r#"
 *ヒント:こじあける感覚
   1 ２四銀(25)   ( 0:00/00:00:00)
 "#[1..]
             )
         )
+    }
+
+    #[test]
+    fn parse_entire_moves() {
+        let input = &r#"
+*ヒント:こじあける感覚
+   1 ２四銀(25)   ( 0:00/00:00:00)
+   2 同　銀(23)   ( 0:00/00:00:00)
+   3 ２五桂打     ( 0:00/00:00:00)
+   4 同　銀(24)   ( 0:00/00:00:00)
+   5 ２四金打     ( 0:00/00:00:00)
+   6 同　玉(33)   ( 0:00/00:00:00)
+   7 ４二角成(31) ( 0:00/00:00:00)+
+   8 同　竜(43)   ( 0:00/00:00:00)
+   9 １三飛成(12) ( 0:00/00:00:00)
+*解説:攻め方の大駒は強力だが、利き筋には守備側の戦力が厚い。そこで急所をしっかり見極めてそこを攻めたい。初手は▲２四銀と捨てるのが好手。代えて▲２四金は△同銀▲同銀△同玉で詰まない。戻って▲２四銀に△同玉は▲１五金△３三玉▲２五桂まで。△同銀には▲２五桂と打つ。△同銀に▲２四金とこじあけ感の強い手順だ。以下△同香は▲２二飛成まで。△同玉と取る。ここで▲１三飛成で決めるべく▲４二角成が好手。以下△同竜と△３三合駒は▲１三飛成、△２三玉は▲１三飛成または香成まででいずれも詰みとなる。
+  10 詰み         ( 0:00/00:00:00)
+まで9手詰
+
+変化：7手
+   7 ４二角(31)   ( 0:00/00:00:00)
+   8 同　竜(43)   ( 0:00/00:00:00)
+   9 １三飛成(12) ( 0:00/00:00:00)
+*柿木将棋Ⅷ V8.01(長) 6手からの解 0:00
+*柿木将棋Ⅸ V9.13(短) 6手からの解 3手詰 0:00
+*柿木将棋Ⅸ V9.13(長) 6手からの解 3手詰 0:00
+  10 詰み         ( 0:00/00:00:00)
+まで9手詰
+"#[1..];
+        let ret = entire_moves(input);
+        let (rest, moves) = ret.expect("failed to parse");
+        assert!(rest.is_empty());
+        assert_eq!(11, moves.len());
+        for (i, m) in moves.iter().enumerate() {
+            if i == 7 {
+                let forks = m.forks.as_ref().expect("no forks");
+                assert_eq!(1, forks.len());
+                assert_eq!(4, forks[0].len());
+            } else {
+                assert!(m.forks.is_none());
+            }
+        }
     }
 }

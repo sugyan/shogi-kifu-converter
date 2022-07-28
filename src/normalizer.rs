@@ -348,7 +348,7 @@ fn normalize_moves(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
                     .data
                     .ok_or(NormalizerError::InitialBoardNoDataWithPresetOTHER)?;
                 let mut pos = PartialPosition::empty();
-                // board
+                // Board
                 for (i, v) in data.board.iter().enumerate() {
                     for (j, p) in v.iter().enumerate() {
                         let sq = PlaceFormat {
@@ -364,7 +364,7 @@ fn normalize_moves(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
                         }
                     }
                 }
-                // hands
+                // Hands
                 for (hand, c) in data.hands.iter().zip(shogi_core::Color::all()) {
                     let h = pos.hand_of_a_player_mut(c);
                     for (num, pk) in [
@@ -383,7 +383,7 @@ fn normalize_moves(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
                         }
                     }
                 }
-                // color
+                // Color
                 pos.side_to_move_set(data.color.into());
                 pos
             }
@@ -399,6 +399,7 @@ fn normalize_moves(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
     };
 
     let mut totals = [TimeFormat::default(); 2];
+    let mut to_prev = None;
     for mf in jkf.moves[1..].iter_mut() {
         // Calculate total time
         if let Some(time) = &mut mf.time {
@@ -406,10 +407,13 @@ fn normalize_moves(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
             time.total = totals[pos.side_to_move().array_index()];
         }
         if let Some(m) = &mut mf.move_ {
+            if m.same.is_some() {
+                m.to = to_prev.ok_or(NormalizerError::InvalidPlace((0, 0)))?
+            }
+            let to: shogi_core::Square = m.to.try_into()?;
+            to_prev = Some(m.to);
             if let Some(from) = m.from {
-                let c = pos.side_to_move();
                 let from: shogi_core::Square = from.try_into()?;
-                let to: shogi_core::Square = m.to.try_into()?;
                 // Retrieve piece
                 let piece = pos
                     .piece_at(from)
@@ -427,7 +431,8 @@ fn normalize_moves(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
                 }
                 // Set promote?
                 if from_piece_kind.unpromote().is_none()
-                    && (from.relative_rank(c) <= 3 || to.relative_rank(c) <= 3)
+                    && (from.relative_rank(pos.side_to_move()) <= 3
+                        || to.relative_rank(pos.side_to_move()) <= 3)
                 {
                     m.promote = Some(from_piece_kind != to_piece_kind)
                 }
@@ -436,15 +441,22 @@ fn normalize_moves(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
                     m.capture = Some(p.piece_kind().into());
                 }
                 // Set relative?
+                // TODO
                 let candidates = LiteLegalityChecker.normal_to_candidates(&pos, to, piece);
                 if candidates.count() > 1 {
-                    // TODO
-                    m.relative = Some(match from.relative_file(c).cmp(&to.relative_file(c)) {
-                        Ordering::Less => Relative::R,
-                        Ordering::Equal => Relative::C,
-                        Ordering::Greater => Relative::L,
-                    });
+                    m.relative = Some(
+                        match from
+                            .relative_file(pos.side_to_move())
+                            .cmp(&to.relative_file(pos.side_to_move()))
+                        {
+                            Ordering::Less => Relative::R,
+                            Ordering::Equal => Relative::C,
+                            Ordering::Greater => Relative::L,
+                        },
+                    );
                 }
+            } else {
+                // TODO
             }
             pos.make_move((*m).try_into()?)
                 .ok_or(NormalizerError::MoveError)?;
