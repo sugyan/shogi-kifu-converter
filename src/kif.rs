@@ -93,7 +93,7 @@ fn information_value_hand(input: &str) -> IResult<&str, Hand, VerboseError<&str>
         map_res(
             many1(terminated(
                 pair(piece_kind, map(opt(kansuji), |o| o.unwrap_or(1))),
-                many0(tag("　")),
+                many0(one_of(" 　")),
             )),
             |v| {
                 v.iter().try_fold(Hand::default(), |mut acc, &(k, n)| {
@@ -138,7 +138,7 @@ fn information_value_preset(input: &str) -> IResult<&str, Information, VerboseEr
             )),
             Information::Preset,
         ),
-        many0(tag("　")),
+        many0(one_of(" 　")),
     )(input)
 }
 
