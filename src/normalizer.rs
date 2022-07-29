@@ -12,8 +12,8 @@ pub enum NormalizerError {
     CoreConvert(#[from] CoreConvertError),
     #[error("Invalid move: {0}")]
     MoveInconsistent(&'static str),
-    #[error("Invalid Move")]
-    MoveError,
+    #[error("Invalid move: {0:?}")]
+    MoveError(MoveMoveFormat),
 }
 
 pub(crate) const HIRATE_BOARD: [[Piece; 9]; 9] = {
@@ -311,6 +311,10 @@ fn normalize_moves(
             time.total = totals[pos.side_to_move().array_index()];
         }
         if let Some(mmf) = &mut mf.move_ {
+            mmf.color = match pos.side_to_move() {
+                shogi_core::Color::Black => Color::Black,
+                shogi_core::Color::White => Color::White,
+            };
             if mmf.same.is_some() {
                 mmf.to = pos
                     .last_move()
@@ -373,7 +377,7 @@ fn normalize_moves(
                 // TODO
             }
             pos.make_move(mmf2move(*mmf)?)
-                .ok_or(NormalizerError::MoveError)?;
+                .ok_or(NormalizerError::MoveError(*mmf))?;
         } else {
             break;
         }

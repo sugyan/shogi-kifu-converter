@@ -12,9 +12,45 @@ use std::collections::HashMap;
 type Forks = Vec<(usize, Vec<MoveFormat>)>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum InformationValue {
-    String(String),
-    Hand(Hand),
+enum Information {
+    Preset(Preset),
+    HandBlack(Hand),
+    HandWhite(Hand),
+    KeyValue(String, String),
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct InformationData {
+    preset: Option<Preset>,
+    hands: [Hand; 2],
+    map: HashMap<String, String>,
+}
+
+impl InformationData {
+    fn merged(lhs: Self, rhs: Self) -> InformationData {
+        InformationData {
+            preset: lhs.preset.or(rhs.preset),
+            hands: Self::merged_hands(lhs.hands, rhs.hands),
+            map: lhs.map.into_iter().chain(rhs.map.into_iter()).collect(),
+        }
+    }
+    fn merged_hands(lhs: [Hand; 2], rhs: [Hand; 2]) -> [Hand; 2] {
+        [
+            Self::merged_hand(lhs[0], rhs[0]),
+            Self::merged_hand(lhs[1], rhs[1]),
+        ]
+    }
+    fn merged_hand(lhs: Hand, rhs: Hand) -> Hand {
+        Hand {
+            FU: lhs.FU + rhs.FU,
+            KY: lhs.KY + rhs.KY,
+            KE: lhs.KE + rhs.KE,
+            GI: lhs.GI + rhs.GI,
+            KI: lhs.KI + rhs.KI,
+            KA: lhs.KA + rhs.KA,
+            HI: lhs.HI + rhs.HI,
+        }
+    }
 }
 
 fn comment_line(input: &str) -> IResult<&str, String, VerboseError<&str>> {
@@ -52,63 +88,126 @@ fn kansuji(input: &str) -> IResult<&str, u8, VerboseError<&str>> {
 }
 
 fn information_value_hand(input: &str) -> IResult<&str, Hand, VerboseError<&str>> {
+    alt((
+        value(Hand::default(), tag("なし")),
+        map_res(
+            many1(terminated(
+                pair(piece_kind, map(opt(kansuji), |o| o.unwrap_or(1))),
+                many0(tag("　")),
+            )),
+            |v| {
+                v.iter().try_fold(Hand::default(), |mut acc, &(k, n)| {
+                    match k {
+                        Kind::FU => acc.FU += n,
+                        Kind::KY => acc.KY += n,
+                        Kind::KE => acc.KE += n,
+                        Kind::GI => acc.GI += n,
+                        Kind::KI => acc.KI += n,
+                        Kind::KA => acc.KA += n,
+                        Kind::HI => acc.HI += n,
+                        _ => return Err(()),
+                    }
+                    Ok(acc)
+                })
+            },
+        ),
+    ))(input)
+}
+
+fn information_value_preset(input: &str) -> IResult<&str, Information, VerboseError<&str>> {
     terminated(
-        alt((
-            value(Hand::default(), tag("なし")),
-            map_res(
-                many1(terminated(
-                    pair(piece_kind, map(opt(kansuji), |o| o.unwrap_or(1))),
-                    many0(tag("　")),
-                )),
-                |v| {
-                    v.iter().try_fold(Hand::default(), |mut acc, &(k, n)| {
-                        match k {
-                            Kind::FU => acc.FU += n,
-                            Kind::KY => acc.KY += n,
-                            Kind::KE => acc.KE += n,
-                            Kind::GI => acc.GI += n,
-                            Kind::KI => acc.KI += n,
-                            Kind::KA => acc.KA += n,
-                            Kind::HI => acc.HI += n,
-                            _ => return Err(()),
-                        }
-                        Ok(acc)
-                    })
-                },
-            ),
-        )),
+        map(
+            alt((
+                value(Preset::PresetHirate, tag("平手")),
+                value(Preset::PresetKY, tag("香落ち")),
+                value(Preset::PresetKYR, tag("右香落ち")),
+                value(Preset::PresetKA, tag("角落ち")),
+                value(Preset::PresetHI, tag("飛車落ち")),
+                value(Preset::PresetHIKY, tag("飛香落ち")),
+                value(Preset::Preset2, tag("二枚落ち")),
+                value(Preset::Preset3, tag("三枚落ち")),
+                value(Preset::Preset4, tag("四枚落ち")),
+                value(Preset::Preset5, tag("五枚落ち")),
+                value(Preset::Preset5L, tag("左五枚落ち")),
+                value(Preset::Preset6, tag("六枚落ち")),
+                value(Preset::Preset7L, tag("左七枚落ち")),
+                value(Preset::Preset7R, tag("右七枚落ち")),
+                value(Preset::Preset8, tag("八枚落ち")),
+                value(Preset::Preset10, tag("十枚落ち")),
+                value(Preset::PresetOther, tag("その他")),
+            )),
+            Information::Preset,
+        ),
+        many0(tag("　")),
+    )(input)
+}
+
+fn information_line_preset(input: &str) -> IResult<&str, Information, VerboseError<&str>> {
+    terminated(
+        preceded(tag("手合割："), information_value_preset),
         line_ending,
     )(input)
 }
 
-fn information_value_with_terminated_line_ending(
-    input: &str,
-) -> IResult<&str, InformationValue, VerboseError<&str>> {
-    alt((
-        map(information_value_hand, InformationValue::Hand),
-        map(terminated(not_line_ending, line_ending), |s: &str| {
-            InformationValue::String(String::from(s.trim()))
-        }),
-    ))(input)
-}
-
-fn information_line(input: &str) -> IResult<&str, (String, InformationValue), VerboseError<&str>> {
-    preceded(
-        many0(comment_line),
-        separated_pair(
-            map(is_not("：\r\n"), String::from),
-            tag("："),
-            information_value_with_terminated_line_ending,
+fn information_line_hands(input: &str) -> IResult<&str, Information, VerboseError<&str>> {
+    terminated(
+        map(
+            pair(
+                terminated(
+                    alt((
+                        value(Color::Black, tag("先手")),
+                        value(Color::White, tag("後手")),
+                    )),
+                    tag("の持駒："),
+                ),
+                information_value_hand,
+            ),
+            |(c, h)| match c {
+                Color::Black => Information::HandBlack(h),
+                Color::White => Information::HandWhite(h),
+            },
         ),
+        line_ending,
     )(input)
 }
 
-fn informations(
-    input: &str,
-) -> IResult<&str, HashMap<String, InformationValue>, VerboseError<&str>> {
+fn information_line_keyvalue(input: &str) -> IResult<&str, Information, VerboseError<&str>> {
+    terminated(
+        map(
+            separated_pair(
+                map(is_not("：\r\n"), String::from),
+                tag("："),
+                map(not_line_ending, String::from),
+            ),
+            |(k, v)| Information::KeyValue(k, v),
+        ),
+        line_ending,
+    )(input)
+}
+
+fn informations(input: &str) -> IResult<&str, InformationData, VerboseError<&str>> {
     map(
-        preceded(many0(comment_line), many0(information_line)),
-        |v| v.into_iter().collect(),
+        many0(preceded(
+            many0(comment_line),
+            alt((
+                information_line_preset,
+                information_line_hands,
+                information_line_keyvalue,
+            )),
+        )),
+        |v| {
+            v.iter().fold(InformationData::default(), |mut acc, info| {
+                match info {
+                    Information::Preset(p) => acc.preset = Some(*p),
+                    Information::HandBlack(h) => acc.hands[0] = *h,
+                    Information::HandWhite(h) => acc.hands[1] = *h,
+                    Information::KeyValue(k, v) => {
+                        acc.map.insert(k.to_owned(), v.to_owned());
+                    }
+                }
+                acc
+            })
+        },
     )(input)
 }
 
@@ -381,69 +480,32 @@ fn entire_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str
 }
 
 pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifFormat, VerboseError<&str>> {
-    let mut hm = HashMap::new();
-    let (input, info) = informations(input)?;
-    hm.extend(info);
-    let (input, opt_board) = opt(board)(input)?;
-    let (input, info) = informations(input)?;
-    hm.extend(info);
-    let (input, moves) = entire_moves(input)?;
-
-    let mut header = HashMap::new();
-    let mut hands = [Hand::default(); 2];
-    for (k, v) in hm {
-        match v {
-            InformationValue::String(s) => {
-                header.insert(k, s);
+    map(
+        tuple((informations, opt(board), informations, entire_moves)),
+        |(info1, opt_board, info2, moves)| {
+            let info = InformationData::merged(info1, info2);
+            let initial = if let Some(board) = opt_board {
+                Some(Initial {
+                    preset: Preset::PresetOther,
+                    data: Some(StateFormat {
+                        color: Color::Black,
+                        board,
+                        hands: info.hands,
+                    }),
+                })
+            } else {
+                Some(Initial {
+                    preset: info.preset.unwrap_or(Preset::PresetHirate),
+                    data: None,
+                })
+            };
+            JsonKifFormat {
+                header: info.map,
+                initial,
+                moves,
             }
-            InformationValue::Hand(h) => match k.as_str() {
-                "先手の持駒" => hands[0] = h,
-                "後手の持駒" => hands[1] = h,
-                _ => unreachable!(),
-            },
-        }
-    }
-    let handicap = header.remove("手合割");
-    let color = Color::Black; // TODO
-    let initial = if let Some(board) = opt_board {
-        Some(Initial {
-            preset: Preset::PresetOther,
-            data: Some(StateFormat {
-                color,
-                board,
-                hands,
-            }),
-        })
-    } else {
-        let preset = match handicap.as_deref() {
-            Some("平手") => Preset::PresetHirate,
-            Some("香落ち") => Preset::PresetKY,
-            Some("右香落ち") => Preset::PresetKYR,
-            Some("角落ち") => Preset::PresetKA,
-            Some("飛車落ち") => Preset::PresetHI,
-            Some("飛香落ち") => Preset::PresetHIKY,
-            Some("二枚落ち") => Preset::Preset2,
-            Some("三枚落ち") => Preset::Preset3,
-            Some("四枚落ち") => Preset::Preset4,
-            Some("五枚落ち") => Preset::Preset5,
-            Some("左五枚落ち") => Preset::Preset5L,
-            Some("六枚落ち") => Preset::Preset6,
-            Some("左七枚落ち") => Preset::Preset7L,
-            Some("右七枚落ち") => Preset::Preset7R,
-            Some("八枚落ち") => Preset::Preset8,
-            Some("十枚落ち") => Preset::Preset10,
-            _ => unreachable!(),
-        };
-        Some(Initial { preset, data: None })
-    };
-    Ok((
-        input,
-        JsonKifFormat {
-            header,
-            initial,
-            moves,
         },
-    ))
+    )(input)
 }
 
 #[cfg(test)]
@@ -463,97 +525,81 @@ mod tests {
     }
 
     #[test]
-    fn parse_information_value() {
-        assert!(information_value_with_terminated_line_ending("").is_err());
+    fn parse_information_preset() {
+        assert!(information_line_preset("").is_err());
         assert_eq!(
-            Ok(("", InformationValue::String(String::from("")))),
-            information_value_with_terminated_line_ending("\n"),
+            Ok(("", Information::Preset(Preset::PresetHirate))),
+            information_line_preset("手合割：平手　　\n")
         );
         assert_eq!(
-            Ok(("", InformationValue::String(String::from("value")))),
-            information_value_with_terminated_line_ending("value\n"),
+            Ok(("", Information::Preset(Preset::PresetKY))),
+            information_line_preset("手合割：香落ち\n")
         );
         assert_eq!(
-            Ok(("", InformationValue::String(String::from("香落ち")))),
-            information_value_with_terminated_line_ending("香落ち\n")
+            Ok(("", Information::Preset(Preset::PresetOther))),
+            information_line_preset("手合割：その他\n")
         );
+    }
+
+    #[test]
+    fn parse_information_hand() {
+        assert!(information_line_hands("").is_err());
         assert_eq!(
-            Ok(("", InformationValue::Hand(Hand::default()))),
-            information_value_with_terminated_line_ending("なし\n")
+            Ok((
+                "",
+                Information::HandBlack(Hand {
+                    KE: 1,
+                    KI: 1,
+                    ..Default::default()
+                })
+            )),
+            information_line_hands("先手の持駒：金　桂　\n")
         );
         assert_eq!(
             Ok((
                 "",
-                InformationValue::Hand(Hand {
+                Information::HandWhite(Hand {
                     FU: 15,
                     KY: 2,
                     KE: 3,
                     GI: 2,
                     KI: 3,
                     KA: 1,
-                    HI: 0,
+                    HI: 0
                 })
             )),
-            information_value_with_terminated_line_ending("角　金三　銀二　桂三　香二　歩十五　\n")
-        );
-        assert_eq!(
-            Ok((
-                "",
-                InformationValue::Hand(Hand {
-                    FU: 0,
-                    KY: 0,
-                    KE: 1,
-                    GI: 0,
-                    KI: 1,
-                    KA: 0,
-                    HI: 0,
-                })
-            )),
-            information_value_with_terminated_line_ending("金　桂　\n")
+            information_line_hands("後手の持駒：角　金三　銀二　桂三　香二　歩十五　\n")
         );
     }
 
     #[test]
-    fn parse_information_line() {
-        assert!(information_line("").is_err());
-        assert!(information_line("# comment\n").is_err());
-        assert!(information_line("# comment：comment\n").is_err());
-        assert!(information_line("key：value with not line ending").is_err());
+    fn parse_information_keyvalue() {
+        assert!(information_line_keyvalue("").is_err());
+        assert!(information_line_keyvalue("# comment\n").is_err());
+        assert!(information_line_keyvalue("key：value with not line ending").is_err());
         assert_eq!(
             Ok((
                 "",
-                (
-                    String::from("key"),
-                    InformationValue::String(String::from("value"))
-                )
+                Information::KeyValue(String::from("key"), String::from("value"))
             )),
-            information_line("key：value\n")
+            information_line_keyvalue("key：value\n")
         );
     }
 
     #[test]
     fn parse_informations() {
-        assert_eq!(Ok(("", HashMap::new())), informations(""));
-        assert_eq!(Ok(("", HashMap::new())), informations("# comment\n"));
-        assert_eq!(
-            Ok(("", HashMap::new())),
-            informations("# comment：comment\n")
-        );
-        assert_eq!(
-            Ok(("key：value with not line ending", HashMap::new())),
-            informations("key：value with not line ending")
-        );
+        assert_eq!(Ok(("", InformationData::default())), informations(""));
         assert_eq!(
             Ok((
                 "",
-                [(
-                    String::from("key"),
-                    InformationValue::String(String::from("value"))
-                )]
-                .into_iter()
-                .collect::<HashMap<_, _>>()
+                InformationData {
+                    map: [(String::from("key"), String::from("value"))]
+                        .into_iter()
+                        .collect(),
+                    ..Default::default()
+                }
             )),
-            informations("key：value\n")
+            informations("# comment\n# comment：comment\nkey：value\n")
         );
     }
 
