@@ -52,37 +52,42 @@ fn kansuji(input: &str) -> IResult<&str, u8, VerboseError<&str>> {
 }
 
 fn information_value_hand(input: &str) -> IResult<&str, Hand, VerboseError<&str>> {
-    alt((
-        value(Hand::default(), tag("なし")),
-        map(
-            many1(terminated(
-                pair(piece_kind, map(opt(kansuji), |o| o.unwrap_or(1))),
-                opt(tag("　")),
-            )),
-            |v| {
-                v.iter().fold(Hand::default(), |mut acc, &(k, n)| {
-                    match k {
-                        Kind::FU => acc.FU += n,
-                        Kind::KY => acc.KY += n,
-                        Kind::KE => acc.KE += n,
-                        Kind::GI => acc.GI += n,
-                        Kind::KI => acc.KI += n,
-                        Kind::KA => acc.KA += n,
-                        Kind::HI => acc.HI += n,
-                        _ => unreachable!(),
-                    }
-                    acc
-                })
-            },
-        ),
-    ))(input)
+    terminated(
+        alt((
+            value(Hand::default(), tag("なし")),
+            map_res(
+                many1(terminated(
+                    pair(piece_kind, map(opt(kansuji), |o| o.unwrap_or(1))),
+                    many0(tag("　")),
+                )),
+                |v| {
+                    v.iter().try_fold(Hand::default(), |mut acc, &(k, n)| {
+                        match k {
+                            Kind::FU => acc.FU += n,
+                            Kind::KY => acc.KY += n,
+                            Kind::KE => acc.KE += n,
+                            Kind::GI => acc.GI += n,
+                            Kind::KI => acc.KI += n,
+                            Kind::KA => acc.KA += n,
+                            Kind::HI => acc.HI += n,
+                            _ => return Err(()),
+                        }
+                        Ok(acc)
+                    })
+                },
+            ),
+        )),
+        line_ending,
+    )(input)
 }
 
-fn information_value(input: &str) -> IResult<&str, InformationValue, VerboseError<&str>> {
+fn information_value_with_terminated_line_ending(
+    input: &str,
+) -> IResult<&str, InformationValue, VerboseError<&str>> {
     alt((
         map(information_value_hand, InformationValue::Hand),
-        map(not_line_ending, |s| {
-            InformationValue::String(String::from(s))
+        map(terminated(not_line_ending, line_ending), |s: &str| {
+            InformationValue::String(String::from(s.trim()))
         }),
     ))(input)
 }
@@ -90,13 +95,10 @@ fn information_value(input: &str) -> IResult<&str, InformationValue, VerboseErro
 fn information_line(input: &str) -> IResult<&str, (String, InformationValue), VerboseError<&str>> {
     preceded(
         many0(comment_line),
-        terminated(
-            separated_pair(
-                map(is_not("：\r\n"), String::from),
-                tag("："),
-                information_value,
-            ),
-            line_ending,
+        separated_pair(
+            map(is_not("：\r\n"), String::from),
+            tag("："),
+            information_value_with_terminated_line_ending,
         ),
     )(input)
 }
@@ -401,6 +403,7 @@ pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifFormat, VerboseError<&s
             },
         }
     }
+    let handicap = header.remove("手合割");
     let color = Color::Black; // TODO
     let initial = if let Some(board) = opt_board {
         Some(Initial {
@@ -412,7 +415,8 @@ pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifFormat, VerboseError<&s
             }),
         })
     } else {
-        let preset = match header.remove("手合割").as_deref() {
+        let preset = match handicap.as_deref() {
+            Some("平手") => Preset::PresetHirate,
             Some("香落ち") => Preset::PresetKY,
             Some("右香落ち") => Preset::PresetKYR,
             Some("角落ち") => Preset::PresetKA,
@@ -428,7 +432,7 @@ pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifFormat, VerboseError<&s
             Some("右七枚落ち") => Preset::Preset7R,
             Some("八枚落ち") => Preset::Preset8,
             Some("十枚落ち") => Preset::Preset10,
-            _ => Preset::PresetHirate,
+            _ => unreachable!(),
         };
         Some(Initial { preset, data: None })
     };
@@ -460,17 +464,22 @@ mod tests {
 
     #[test]
     fn parse_information_value() {
+        assert!(information_value_with_terminated_line_ending("").is_err());
         assert_eq!(
-            Ok(("", InformationValue::String(String::new()))),
-            information_value(""),
+            Ok(("", InformationValue::String(String::from("")))),
+            information_value_with_terminated_line_ending("\n"),
         );
         assert_eq!(
             Ok(("", InformationValue::String(String::from("value")))),
-            information_value("value"),
+            information_value_with_terminated_line_ending("value\n"),
+        );
+        assert_eq!(
+            Ok(("", InformationValue::String(String::from("香落ち")))),
+            information_value_with_terminated_line_ending("香落ち\n")
         );
         assert_eq!(
             Ok(("", InformationValue::Hand(Hand::default()))),
-            information_value("なし")
+            information_value_with_terminated_line_ending("なし\n")
         );
         assert_eq!(
             Ok((
@@ -485,7 +494,7 @@ mod tests {
                     HI: 0,
                 })
             )),
-            information_value("角　金三　銀二　桂三　香二　歩十五　")
+            information_value_with_terminated_line_ending("角　金三　銀二　桂三　香二　歩十五　\n")
         );
         assert_eq!(
             Ok((
@@ -500,7 +509,7 @@ mod tests {
                     HI: 0,
                 })
             )),
-            information_value("金　桂　")
+            information_value_with_terminated_line_ending("金　桂　\n")
         );
     }
 
