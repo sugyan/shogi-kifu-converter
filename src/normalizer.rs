@@ -99,6 +99,17 @@ const STATE_HI: StateFormat = {
     }
 };
 
+const STATE_HIKY: StateFormat = {
+    let mut board = HIRATE_BOARD;
+    board[0][0] = Piece::empty();
+    board[7][1] = Piece::empty();
+    StateFormat {
+        color: Color::White,
+        board,
+        hands: [Hand::empty(); 2],
+    }
+};
+
 const STATE_2: StateFormat = {
     let mut board = HIRATE_BOARD;
     board[1][1] = Piece::empty();
@@ -125,6 +136,28 @@ const STATE_6: StateFormat = {
     let mut board = STATE_4.board;
     board[1][0] = Piece::empty();
     board[7][0] = Piece::empty();
+    StateFormat {
+        color: Color::White,
+        board,
+        hands: [Hand::empty(); 2],
+    }
+};
+
+const STATE_8: StateFormat = {
+    let mut board = STATE_6.board;
+    board[2][0] = Piece::empty();
+    board[6][0] = Piece::empty();
+    StateFormat {
+        color: Color::White,
+        board,
+        hands: [Hand::empty(); 2],
+    }
+};
+
+const STATE_10: StateFormat = {
+    let mut board = STATE_8.board;
+    board[3][0] = Piece::empty();
+    board[5][0] = Piece::empty();
     StateFormat {
         color: Color::White,
         board,
@@ -274,6 +307,10 @@ fn normalize_initial(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
                 preset: Preset::PresetHI,
                 data: None,
             },
+            Some(STATE_HIKY) => Initial {
+                preset: Preset::PresetHIKY,
+                data: None,
+            },
             Some(STATE_2) => Initial {
                 preset: Preset::Preset2,
                 data: None,
@@ -284,6 +321,14 @@ fn normalize_initial(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
             },
             Some(STATE_6) => Initial {
                 preset: Preset::Preset6,
+                data: None,
+            },
+            Some(STATE_8) => Initial {
+                preset: Preset::Preset8,
+                data: None,
+            },
+            Some(STATE_10) => Initial {
+                preset: Preset::Preset10,
                 data: None,
             },
             _ => *initial,
@@ -357,8 +402,6 @@ fn normalize_moves(
                 if let Some(p) = pos.piece_at(to) {
                     mmf.capture = Some(p.piece_kind().into());
                 }
-            } else {
-                // TODO
             }
             let mv = mmf2move(mmf)?;
             // Set relative?
