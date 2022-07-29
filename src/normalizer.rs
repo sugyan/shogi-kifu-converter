@@ -237,7 +237,7 @@ pub(crate) fn normalize(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> 
     } else {
         PartialPosition::startpos()
     };
-    normalize_moves(&mut jkf.moves[1..], pos)?;
+    normalize_moves(&mut jkf.moves[1..], pos, [TimeFormat::default(); 2])?;
     Ok(())
 }
 
@@ -296,13 +296,13 @@ fn normalize_initial(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
 fn normalize_moves(
     moves: &mut [MoveFormat],
     mut pos: PartialPosition,
+    mut totals: [TimeFormat; 2],
 ) -> Result<(), NormalizerError> {
-    let mut totals = [TimeFormat::default(); 2];
     for mf in moves {
         // Normalize forks
         if let Some(forks) = mf.forks.as_mut() {
             for v in forks.iter_mut() {
-                normalize_moves(v, pos.clone())?;
+                normalize_moves(v, pos.clone(), totals)?;
             }
         }
         // Calculate total time
@@ -344,7 +344,7 @@ fn normalize_moves(
                     mmf.same = Some(true);
                 }
                 // Set promote?
-                if from_piece_kind.unpromote().is_none()
+                if from_piece_kind.promote().is_some()
                     && (from.relative_rank(pos.side_to_move()) <= 3
                         || to.relative_rank(pos.side_to_move()) <= 3)
                 {

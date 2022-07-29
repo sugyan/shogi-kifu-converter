@@ -271,16 +271,16 @@ fn move_time_format(input: &str) -> IResult<&str, TimeFormat, VerboseError<&str>
     alt((
         map(
             tuple((
-                delimited(space0, map_res(digit1, str::parse), tag(":")),
-                delimited(space0, map_res(digit1, str::parse), tag(":")),
-                preceded(space0, map_res(digit1, str::parse)),
+                terminated(map_res(digit1, str::parse), tag(":")),
+                terminated(map_res(digit1, str::parse), tag(":")),
+                map_res(digit1, str::parse),
             )),
             |(h, m, s)| TimeFormat { h: Some(h), m, s },
         ),
         map(
             tuple((
-                delimited(space0, map_res(digit1, str::parse), tag(":")),
-                preceded(space0, map_res(digit1, str::parse)),
+                terminated(map_res(digit1, str::parse), tag(":")),
+                map_res(digit1, str::parse),
             )),
             |(m, s)| TimeFormat { h: None, m, s },
         ),
@@ -291,7 +291,11 @@ fn move_time(input: &str) -> IResult<&str, Time, VerboseError<&str>> {
     delimited(
         tag("("),
         map(
-            separated_pair(move_time_format, tag("/"), move_time_format),
+            separated_pair(
+                delimited(space0, move_time_format, space0),
+                tag("/"),
+                delimited(space0, move_time_format, space0),
+            ),
             |(now, total)| Time { now, total },
         ),
         tag(")"),
@@ -653,7 +657,7 @@ mod tests {
                     s: 16
                 }
             )),
-            move_time_format(" 0:16")
+            move_time_format("0:16")
         );
         assert_eq!(
             Ok((
@@ -665,17 +669,6 @@ mod tests {
                 }
             )),
             move_time_format("00:00:16")
-        );
-        assert_eq!(
-            Ok((
-                "",
-                TimeFormat {
-                    h: Some(0),
-                    m: 0,
-                    s: 19
-                }
-            )),
-            move_time_format(" 0:00:19")
         );
     }
 
@@ -788,6 +781,40 @@ mod tests {
             )),
             move_line("3 中断 ( 0:03/ 0:00:19)\n")
         );
+        assert_eq!(
+            Ok((
+                "",
+                (
+                    1,
+                    MoveFormat {
+                        move_: Some(MoveMoveFormat {
+                            color: Color::Black,
+                            from: Some(PlaceFormat { x: 6, y: 9 }),
+                            to: PlaceFormat { x: 7, y: 8 },
+                            piece: Kind::KI,
+                            same: None,
+                            promote: None,
+                            capture: None,
+                            relative: None,
+                        }),
+                        time: Some(Time {
+                            now: TimeFormat {
+                                h: None,
+                                m: 0,
+                                s: 1
+                            },
+                            total: TimeFormat {
+                                h: Some(0),
+                                m: 0,
+                                s: 1
+                            }
+                        }),
+                        ..Default::default()
+                    }
+                )
+            )),
+            move_line("   1 ７八金(69)    (00:01 / 00:00:01)\n")
+        )
     }
 
     #[test]
