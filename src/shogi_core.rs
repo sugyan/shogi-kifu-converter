@@ -43,12 +43,6 @@ impl From<jkf::Kind> for shogi_core::PieceKind {
     }
 }
 
-impl From<jkf::MoveMoveFormat> for Piece {
-    fn from(mmf: jkf::MoveMoveFormat) -> Self {
-        Piece::new(mmf.piece.into(), mmf.color.into())
-    }
-}
-
 impl TryFrom<jkf::PlaceFormat> for Square {
     type Error = CoreConvertError;
 

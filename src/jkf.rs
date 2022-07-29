@@ -74,12 +74,8 @@ pub enum Relative {
     M, // 寄
     D, // 引
     LU,
-    LM,
     LD,
-    CU,
-    CD,
     RU,
-    RM,
     RD,
     H, // 打
 }

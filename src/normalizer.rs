@@ -1,8 +1,7 @@
 use crate::jkf::*;
 use crate::shogi_core::CoreConvertError;
-use shogi_core::{LegalityChecker, PartialPosition, PieceKind};
-use shogi_legality_lite::LiteLegalityChecker;
-use std::cmp::Ordering;
+use shogi_core::{PartialPosition, PieceKind};
+use shogi_official_kifu::display_single_move_kansuji;
 use std::ops::AddAssign;
 use thiserror::Error;
 
@@ -241,7 +240,7 @@ pub(crate) fn normalize(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> 
     Ok(())
 }
 
-fn mmf2move(mmf: MoveMoveFormat) -> Result<shogi_core::Move, NormalizerError> {
+fn mmf2move(mmf: &MoveMoveFormat) -> Result<shogi_core::Move, NormalizerError> {
     if let Some(from) = mmf.from {
         Ok(shogi_core::Move::Normal {
             from: from.try_into()?,
@@ -250,7 +249,7 @@ fn mmf2move(mmf: MoveMoveFormat) -> Result<shogi_core::Move, NormalizerError> {
         })
     } else {
         Ok(shogi_core::Move::Drop {
-            piece: mmf.into(),
+            piece: shogi_core::Piece::new(mmf.piece.into(), mmf.color.into()),
             to: mmf.to.try_into()?,
         })
     }
@@ -358,26 +357,28 @@ fn normalize_moves(
                 if let Some(p) = pos.piece_at(to) {
                     mmf.capture = Some(p.piece_kind().into());
                 }
-                // Set relative?
-                // TODO
-                let candidates = LiteLegalityChecker.normal_to_candidates(&pos, to, piece);
-                if candidates.count() > 1 {
-                    mmf.relative = Some(
-                        match from
-                            .relative_file(pos.side_to_move())
-                            .cmp(&to.relative_file(pos.side_to_move()))
-                        {
-                            Ordering::Less => Relative::R,
-                            Ordering::Equal => Relative::C,
-                            Ordering::Greater => Relative::L,
-                        },
-                    );
-                }
             } else {
                 // TODO
             }
-            pos.make_move(mmf2move(*mmf)?)
-                .ok_or(NormalizerError::MoveError(*mmf))?;
+            let mv = mmf2move(mmf)?;
+            // Set relative?
+            if let Some(mut display) = display_single_move_kansuji(&pos, mv) {
+                mmf.relative = match (display.pop(), display.pop()) {
+                    (Some('左'), _) => Some(Relative::L),
+                    (Some('直'), _) => Some(Relative::C),
+                    (Some('右'), _) => Some(Relative::R),
+                    (Some('上'), Some('左')) => Some(Relative::LU),
+                    (Some('上'), Some('右')) => Some(Relative::RU),
+                    (Some('上'), _) => Some(Relative::U),
+                    (Some('引'), Some('左')) => Some(Relative::LD),
+                    (Some('引'), Some('右')) => Some(Relative::RD),
+                    (Some('引'), _) => Some(Relative::D),
+                    (Some('寄'), _) => Some(Relative::M),
+                    (Some('打'), _) => Some(Relative::H),
+                    _ => None,
+                };
+            }
+            pos.make_move(mv).ok_or(NormalizerError::MoveError(*mmf))?;
         } else {
             break;
         }
