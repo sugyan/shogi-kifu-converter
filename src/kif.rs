@@ -61,10 +61,15 @@ fn comment_line(input: &str) -> IResult<&str, String, VerboseError<&str>> {
 }
 
 fn move_comment_line(input: &str) -> IResult<&str, String, VerboseError<&str>> {
-    map(
-        delimited(tag("*"), not_line_ending, line_ending),
-        String::from,
-    )(input)
+    alt((
+        map(
+            delimited(tag("*"), not_line_ending, line_ending),
+            String::from,
+        ),
+        map(delimited(tag("&"), not_line_ending, line_ending), |s| {
+            String::from("&") + s
+        }),
+    ))(input)
 }
 
 fn kansuji(input: &str) -> IResult<&str, u8, VerboseError<&str>> {
@@ -220,7 +225,7 @@ fn piece_kind(input: &str) -> IResult<&str, Kind, VerboseError<&str>> {
         value(Kind::KI, tag("金")),
         value(Kind::KA, tag("角")),
         value(Kind::HI, tag("飛")),
-        value(Kind::OU, tag("玉")),
+        value(Kind::OU, alt((tag("玉"), tag("王")))),
         value(Kind::TO, tag("と")),
         value(Kind::NY, alt((tag("杏"), tag("成香")))),
         value(Kind::NK, alt((tag("圭"), tag("成桂")))),
@@ -464,18 +469,37 @@ fn fork_moves(input: &str) -> IResult<&str, Forks, VerboseError<&str>> {
 }
 
 fn entire_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
-    map(
-        pair(preceded(many0(not_move_line), main_moves), fork_moves),
-        |(mut moves, forks)| {
-            for (i, fork) in forks {
-                if let Some(v) = &mut moves[i].forks {
-                    v.push(fork);
-                } else {
-                    moves[i].forks = Some(vec![fork]);
+    fn merge_forks(
+        (mut moves, mut forks): (Vec<MoveFormat>, Vec<(usize, Vec<MoveFormat>)>),
+    ) -> Vec<MoveFormat> {
+        let mut stack = Vec::new();
+        while let Some(fork) = forks.pop() {
+            stack.push(fork);
+            if let Some((i, last)) = forks.last_mut() {
+                while stack.last().map_or(false, |(j, _)| j >= i) {
+                    if let Some((j, fork)) = stack.pop() {
+                        if let Some(v) = last[j - *i].forks.as_mut() {
+                            v.push(fork);
+                        } else {
+                            last[j - *i].forks = Some(vec![fork]);
+                        }
+                    }
                 }
             }
-            moves
-        },
+        }
+        while let Some((i, fork)) = stack.pop() {
+            if let Some(v) = moves[i].forks.as_mut() {
+                v.push(fork);
+            } else {
+                moves[i].forks = Some(vec![fork]);
+            }
+        }
+        moves
+    }
+
+    map(
+        pair(preceded(many0(not_move_line), main_moves), fork_moves),
+        merge_forks,
     )(input)
 }
 
@@ -606,8 +630,9 @@ mod tests {
     #[test]
     fn parse_piece_kind() {
         assert!(piece_kind("").is_err());
-        assert!(piece_kind("王").is_err());
         assert_eq!(Ok(("", Kind::FU)), piece_kind("歩"));
+        assert_eq!(Ok(("", Kind::OU)), piece_kind("玉"));
+        assert_eq!(Ok(("", Kind::OU)), piece_kind("王"));
         assert_eq!(Ok(("", Kind::RY)), piece_kind("龍"));
         assert_eq!(Ok(("", Kind::RY)), piece_kind("竜"));
         assert_eq!(Ok(("", Kind::NY)), piece_kind("成香"));
