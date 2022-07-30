@@ -73,23 +73,26 @@ fn move_comment_line(input: &str) -> IResult<&str, String, VerboseError<&str>> {
 }
 
 fn kansuji(input: &str) -> IResult<&str, u8, VerboseError<&str>> {
-    map(
-        pair(
-            map(opt(tag("十")), |x| if x.is_some() { 10 } else { 0 }),
-            alt((
-                value(1, tag("一")),
-                value(2, tag("二")),
-                value(3, tag("三")),
-                value(4, tag("四")),
-                value(5, tag("五")),
-                value(6, tag("六")),
-                value(7, tag("七")),
-                value(8, tag("八")),
-                value(9, tag("九")),
-            )),
-        ),
-        |(u0, u1)| u0 + u1,
-    )(input)
+    alt((
+        value(18, tag("十八")),
+        value(17, tag("十七")),
+        value(16, tag("十六")),
+        value(15, tag("十五")),
+        value(14, tag("十四")),
+        value(13, tag("十三")),
+        value(12, tag("十二")),
+        value(11, tag("十一")),
+        value(10, tag("十")),
+        value(9, tag("九")),
+        value(8, tag("八")),
+        value(7, tag("七")),
+        value(6, tag("六")),
+        value(5, tag("五")),
+        value(4, tag("四")),
+        value(3, tag("三")),
+        value(2, tag("二")),
+        value(1, tag("一")),
+    ))(input)
 }
 
 fn information_value_hand(input: &str) -> IResult<&str, Hand, VerboseError<&str>> {
@@ -162,6 +165,8 @@ fn information_line_hands(input: &str) -> IResult<&str, Information, VerboseErro
                     alt((
                         value(Color::Black, tag("先手")),
                         value(Color::White, tag("後手")),
+                        value(Color::Black, tag("下手")),
+                        value(Color::White, tag("上手")),
                     )),
                     tag("の持駒："),
                 ),
@@ -593,6 +598,31 @@ mod tests {
                 })
             )),
             information_line_hands("後手の持駒：角　金三　銀二　桂三　香二　歩十五　\n")
+        );
+        assert_eq!(
+            Ok((
+                "",
+                Information::HandWhite(Hand {
+                    FU: 10,
+                    KY: 3,
+                    KE: 1,
+                    GI: 0,
+                    KI: 1,
+                    KA: 0,
+                    HI: 0
+                })
+            )),
+            information_line_hands("後手の持駒：金　桂　香三　歩十　\n")
+        );
+        assert_eq!(
+            Ok((
+                "",
+                Information::HandBlack(Hand {
+                    KA: 1,
+                    ..Default::default()
+                })
+            )),
+            information_line_hands("下手の持駒：角　\n")
         );
     }
 
