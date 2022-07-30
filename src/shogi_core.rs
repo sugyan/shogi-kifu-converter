@@ -1,6 +1,6 @@
 use crate::jkf;
 use crate::jkf::{Color::*, Kind::*, Preset::*};
-use shogi_core::{Color, PartialPosition, Piece, PieceKind, Square};
+use shogi_core::{Color, Move, PartialPosition, Piece, PieceKind, Position, Square};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -9,8 +9,10 @@ pub enum CoreConvertError {
     InitialBoardNoDataWithPresetOTHER,
     #[error("Invalid initial hands: {0:?}")]
     InitialHands(jkf::Kind),
-    #[error("Invalid Place: {0:?}")]
+    #[error("Invalid place: {0:?}")]
     InvalidPlace((u8, u8)),
+    #[error("Invalid move: {0:?}")]
+    InvalidMove(Move),
 }
 
 impl From<jkf::Color> for Color {
@@ -43,18 +45,37 @@ impl From<jkf::Kind> for shogi_core::PieceKind {
     }
 }
 
-impl TryFrom<jkf::PlaceFormat> for Square {
+impl TryFrom<&jkf::PlaceFormat> for Square {
     type Error = CoreConvertError;
 
-    fn try_from(pf: jkf::PlaceFormat) -> Result<Self, Self::Error> {
+    fn try_from(pf: &jkf::PlaceFormat) -> Result<Self, Self::Error> {
         Square::new(pf.x, pf.y).ok_or(CoreConvertError::InvalidPlace((pf.x, pf.y)))
     }
 }
 
-impl TryFrom<jkf::Initial> for PartialPosition {
+impl TryFrom<&jkf::MoveMoveFormat> for Move {
     type Error = CoreConvertError;
 
-    fn try_from(initial: jkf::Initial) -> Result<Self, Self::Error> {
+    fn try_from(mmf: &jkf::MoveMoveFormat) -> Result<Self, Self::Error> {
+        if let Some(from) = &mmf.from {
+            Ok(shogi_core::Move::Normal {
+                from: from.try_into()?,
+                to: (&mmf.to).try_into()?,
+                promote: mmf.promote.unwrap_or_default(),
+            })
+        } else {
+            Ok(shogi_core::Move::Drop {
+                piece: shogi_core::Piece::new(mmf.piece.into(), mmf.color.into()),
+                to: (&mmf.to).try_into()?,
+            })
+        }
+    }
+}
+
+impl TryFrom<&jkf::Initial> for PartialPosition {
+    type Error = CoreConvertError;
+
+    fn try_from(initial: &jkf::Initial) -> Result<Self, Self::Error> {
         match initial.preset {
             PresetHirate => Ok(PartialPosition::startpos()),
             PresetOther => {
@@ -65,11 +86,11 @@ impl TryFrom<jkf::Initial> for PartialPosition {
                 // Board
                 for (i, v) in data.board.iter().enumerate() {
                     for (j, p) in v.iter().enumerate() {
-                        let sq = jkf::PlaceFormat {
+                        let sq = (&jkf::PlaceFormat {
                             x: i as u8 + 1,
                             y: j as u8 + 1,
-                        }
-                        .try_into()?;
+                        })
+                            .try_into()?;
                         if let (Some(kind), Some(color)) = (p.kind, p.color) {
                             pos.piece_set(sq, Some(Piece::new(kind.into(), color.into())));
                         }
@@ -122,5 +143,24 @@ impl TryFrom<jkf::Initial> for PartialPosition {
                 Ok(pos)
             }
         }
+    }
+}
+
+impl TryFrom<&jkf::JsonKifFormat> for Position {
+    type Error = CoreConvertError;
+
+    fn try_from(jkf: &jkf::JsonKifFormat) -> Result<Self, Self::Error> {
+        let mut pos = if let Some(initial) = &jkf.initial {
+            Position::arbitrary_position(initial.try_into()?)
+        } else {
+            Position::startpos()
+        };
+        for mf in jkf.moves.iter() {
+            if let Some(mv) = &mf.move_ {
+                let mv = mv.try_into()?;
+                pos.make_move(mv).ok_or(CoreConvertError::InvalidMove(mv))?;
+            }
+        }
+        Ok(pos)
     }
 }

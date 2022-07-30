@@ -483,7 +483,7 @@ fn entire_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str
             if let Some((i, last)) = forks.last_mut() {
                 while stack.last().map_or(false, |(j, _)| j >= i) {
                     if let Some((j, fork)) = stack.pop() {
-                        if let Some(v) = last[j - *i].forks.as_mut() {
+                        if let Some(v) = &mut last[j - *i].forks {
                             v.push(fork);
                         } else {
                             last[j - *i].forks = Some(vec![fork]);
@@ -493,7 +493,7 @@ fn entire_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str
             }
         }
         while let Some((i, fork)) = stack.pop() {
-            if let Some(v) = moves[i].forks.as_mut() {
+            if let Some(v) = &mut moves[i].forks {
                 v.push(fork);
             } else {
                 moves[i].forks = Some(vec![fork]);

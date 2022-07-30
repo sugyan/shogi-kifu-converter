@@ -112,7 +112,7 @@ pub enum MoveSpecial {
     SpecialError, // エラー
 }
 
-#[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub struct JsonKifFormat {
     pub header: HashMap<String, String>,
     pub initial: Option<Initial>,

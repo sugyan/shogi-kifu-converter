@@ -6,7 +6,7 @@ use encoding_rs::{SHIFT_JIS, UTF_8};
 use nom::error::convert_error;
 use nom::Finish;
 use std::fs::File;
-use std::io::Read;
+use std::io::{BufReader, Read};
 use std::path::Path;
 
 pub fn parse_csa_file<P: AsRef<Path>>(path: P) -> Result<JsonKifFormat, ConvertError> {
@@ -50,12 +50,27 @@ pub fn parse_kif_str(s: &str) -> Result<JsonKifFormat, ConvertError> {
     }
 }
 
+pub fn parse_jkf_file<P: AsRef<Path>>(path: P) -> Result<JsonKifFormat, ConvertError> {
+    let file = File::open(&path)?;
+    match serde_json::from_reader::<_, JsonKifFormat>(BufReader::new(file)) {
+        Ok(jkf) => Ok(jkf),
+        Err(err) => Err(ConvertError::SerdeError(err)),
+    }
+}
+
+pub fn parse_jkf_str(s: &str) -> Result<JsonKifFormat, ConvertError> {
+    match serde_json::from_str::<JsonKifFormat>(s) {
+        Ok(jkf) => Ok(jkf),
+        Err(err) => Err(ConvertError::SerdeError(err)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::Value;
     use std::ffi::OsStr;
-    use std::io::{BufReader, Result};
+    use std::io::Result;
 
     #[test]
     fn csa_to_jkf() -> Result<()> {

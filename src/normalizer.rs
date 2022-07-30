@@ -11,8 +11,6 @@ pub enum NormalizerError {
     CoreConvert(#[from] CoreConvertError),
     #[error("Invalid move: {0}")]
     MoveInconsistent(&'static str),
-    #[error("Invalid move: {0:?}")]
-    MoveError(MoveMoveFormat),
 }
 
 pub(crate) const HIRATE_BOARD: [[Piece; 9]; 9] = {
@@ -264,28 +262,13 @@ impl From<shogi_core::PieceKind> for Kind {
 
 pub(crate) fn normalize(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
     normalize_initial(jkf)?;
-    let pos = if let Some(initial) = jkf.initial {
+    let pos = if let Some(initial) = &jkf.initial {
         initial.try_into()?
     } else {
         PartialPosition::startpos()
     };
     normalize_moves(&mut jkf.moves[1..], pos, [TimeFormat::default(); 2])?;
     Ok(())
-}
-
-fn mmf2move(mmf: &MoveMoveFormat) -> Result<shogi_core::Move, NormalizerError> {
-    if let Some(from) = mmf.from {
-        Ok(shogi_core::Move::Normal {
-            from: from.try_into()?,
-            to: mmf.to.try_into()?,
-            promote: mmf.promote.unwrap_or_default(),
-        })
-    } else {
-        Ok(shogi_core::Move::Drop {
-            piece: shogi_core::Piece::new(mmf.piece.into(), mmf.color.into()),
-            to: mmf.to.try_into()?,
-        })
-    }
 }
 
 fn normalize_initial(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
@@ -344,7 +327,7 @@ fn normalize_moves(
 ) -> Result<(), NormalizerError> {
     for mf in moves {
         // Normalize forks
-        if let Some(forks) = mf.forks.as_mut() {
+        if let Some(forks) = &mut mf.forks {
             for v in forks.iter_mut() {
                 normalize_moves(v, pos.clone(), totals)?;
             }
@@ -368,8 +351,8 @@ fn normalize_moves(
                     })
                     .ok_or(CoreConvertError::InvalidPlace((0, 0)))?
             }
-            let to = shogi_core::Square::try_from(mmf.to)?;
-            if let Some(from) = mmf.from {
+            let to = shogi_core::Square::try_from(&mmf.to)?;
+            if let Some(from) = &mmf.from {
                 let from = from.try_into()?;
                 // Retrieve piece
                 let piece = pos
@@ -403,7 +386,7 @@ fn normalize_moves(
                     mmf.capture = Some(p.piece_kind().into());
                 }
             }
-            let mv = mmf2move(mmf)?;
+            let mv = (&*mmf).try_into()?;
             // Set relative?
             if let Some(mut display) = display_single_move_kansuji(&pos, mv) {
                 mmf.relative = match (display.pop(), display.pop()) {
@@ -421,7 +404,9 @@ fn normalize_moves(
                     _ => None,
                 };
             }
-            pos.make_move(mv).ok_or(NormalizerError::MoveError(*mmf))?;
+            pos.make_move(mv).ok_or(NormalizerError::CoreConvert(
+                CoreConvertError::InvalidMove(mv),
+            ))?;
         } else {
             break;
         }

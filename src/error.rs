@@ -1,5 +1,6 @@
 use crate::csa::CsaConvertError;
 use crate::normalizer::NormalizerError;
+use crate::shogi_core::CoreConvertError;
 use std::io;
 use thiserror::Error;
 
@@ -13,10 +14,14 @@ pub enum ConvertError {
     CsaConvert(#[from] CsaConvertError),
     #[error("KIF Error: {0}")]
     KifError(String),
+    #[error("Core converter Error: {0}")]
+    CoreConvert(#[from] CoreConvertError),
     #[error("Normalization Error: {0}")]
     Normalizer(#[from] NormalizerError),
     #[error("Decode Error")]
     DecodeError,
     #[error("File extension Error")]
     FileExtensionError,
+    #[error("JSON Error: {0}")]
+    SerdeError(#[from] serde_json::Error),
 }

@@ -1,8 +1,8 @@
-use serde_json::Result;
+use shogi_kifu_converter::error::ConvertError;
 use shogi_kifu_converter::parser::parse_csa_file;
 use std::env;
 
-fn main() -> Result<()> {
+fn main() -> Result<(), ConvertError> {
     let argv = env::args().collect::<Vec<_>>();
     if argv.len() != 2 {
         eprintln!("Usage: {} <CSA file>", argv[0]);
