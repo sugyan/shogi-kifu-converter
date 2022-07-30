@@ -173,6 +173,17 @@ impl Piece {
 }
 
 impl Kind {
+    pub(crate) fn promoted(self) -> Self {
+        match self {
+            Kind::FU => Kind::TO,
+            Kind::KY => Kind::NY,
+            Kind::KE => Kind::NK,
+            Kind::GI => Kind::NG,
+            Kind::KA => Kind::UM,
+            Kind::HI => Kind::RY,
+            _ => self,
+        }
+    }
     pub(crate) fn unpromoted(self) -> Self {
         match self {
             Kind::TO => Kind::FU,

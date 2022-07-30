@@ -1,3 +1,8 @@
+mod csa;
+mod kif;
+
+pub use self::csa::ToCSA;
+pub use self::kif::ToKIF;
 use crate::jkf::JsonKifFormat;
 use shogi_core::{PartialPosition, Position, ToUsi};
 

@@ -112,11 +112,21 @@ pub enum MoveSpecial {
     SpecialError, // エラー
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct JsonKifFormat {
     pub header: HashMap<String, String>,
     pub initial: Option<Initial>,
     pub moves: Vec<MoveFormat>,
+}
+
+impl Default for JsonKifFormat {
+    fn default() -> Self {
+        JsonKifFormat {
+            header: HashMap::new(),
+            initial: None,
+            moves: vec![MoveFormat::default()],
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
