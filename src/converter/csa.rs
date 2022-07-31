@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fmt::{Result, Write};
 
 /// A type that is convertible to CSA format.
-pub trait ToCSA {
+pub trait ToCsa {
     /// Write `self` in CSA format.
     ///
     /// This function returns Err(core::fmt::Error)
@@ -20,7 +20,7 @@ pub trait ToCSA {
     }
 }
 
-impl ToCSA for JsonKifFormat {
+impl ToCsa for JsonKifFormat {
     fn to_csa<W: Write>(&self, sink: &mut W) -> Result {
         write_header(&self.header, sink)?;
         write_initial(&self.initial, sink)?;
@@ -31,8 +31,8 @@ impl ToCSA for JsonKifFormat {
 
 fn write_color<W: Write>(c: Color, sink: &mut W) -> Result {
     match c {
-        Color::Black => sink.write_str("+")?,
-        Color::White => sink.write_str("-")?,
+        Color::Black => sink.write_char('+')?,
+        Color::White => sink.write_char('-')?,
     }
     Ok(())
 }
@@ -101,7 +101,7 @@ fn write_initial_data<W: Write>(data: &StateFormat, sink: &mut W) -> Result {
                 sink.write_str(" * ")?;
             }
         }
-        sink.write_str("\n")?;
+        sink.write_char('\n')?;
     }
     for (i, hand) in data.hands.iter().enumerate() {
         if hand == &Hand::default() {
@@ -120,7 +120,7 @@ fn write_initial_data<W: Write>(data: &StateFormat, sink: &mut W) -> Result {
         (0..hand.KE).try_for_each(|_| sink.write_str("00KE"))?;
         (0..hand.KY).try_for_each(|_| sink.write_str("00KY"))?;
         (0..hand.FU).try_for_each(|_| sink.write_str("00FU"))?;
-        sink.write_str("\n")?;
+        sink.write_char('\n')?;
     }
     write_color(data.color, sink)?;
     Ok(())
@@ -142,9 +142,9 @@ fn write_initial_preset<W: Write>(preset: Preset, sink: &mut W) -> Result {
         _ => unimplemented!(),
     }
     if preset == Preset::PresetHirate {
-        sink.write_str("+")?;
+        sink.write_char('+')?;
     } else {
-        sink.write_str("-")?;
+        sink.write_char('-')?;
     }
     Ok(())
 }
@@ -159,13 +159,13 @@ fn write_initial<W: Write>(initial: &Option<Initial>, sink: &mut W) -> Result {
     } else {
         sink.write_str("PI\n+")?;
     }
-    sink.write_str("\n")?;
+    sink.write_char('\n')?;
     Ok(())
 }
 
 fn write_moves<W: Write>(moves: &[MoveFormat], sink: &mut W) -> Result {
-    for mv in moves {
-        if let Some(mv) = mv.move_ {
+    for mf in moves {
+        if let Some(mv) = mf.move_ {
             write_color(mv.color, sink)?;
             write_place(&mv.from, sink)?;
             write_place(&Some(mv.to), sink)?;
@@ -175,8 +175,8 @@ fn write_moves<W: Write>(moves: &[MoveFormat], sink: &mut W) -> Result {
                 mv.piece
             };
             write_kind(kind, sink)?;
-        } else if let Some(special) = &mv.special {
-            sink.write_str("%")?;
+        } else if let Some(special) = &mf.special {
+            sink.write_char('%')?;
             match special {
                 MoveSpecial::SpecialToryo => sink.write_str("TORYO")?,
                 MoveSpecial::SpecialChudan => sink.write_str("CHUDAN")?,
@@ -197,13 +197,13 @@ fn write_moves<W: Write>(moves: &[MoveFormat], sink: &mut W) -> Result {
             unreachable!()
         }
         sink.write_str("\n")?;
-        if let Some(time) = &mv.time {
+        if let Some(time) = &mf.time {
             let sec = time.now.h.unwrap_or_default() as u64 * 3600
                 + time.now.m as u64 * 60
                 + time.now.s as u64;
             sink.write_fmt(format_args!("T{}\n", sec))?;
         }
-        if let Some(comments) = &mv.comments {
+        if let Some(comments) = &mf.comments {
             for comment in comments {
                 sink.write_fmt(format_args!("'{}\n", comment))?;
             }

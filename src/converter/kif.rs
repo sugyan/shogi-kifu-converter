@@ -2,7 +2,7 @@ use crate::jkf::JsonKifFormat;
 use std::fmt::{Result, Write};
 
 /// A type that is convertible to KIF format.
-pub trait ToKIF {
+pub trait ToKif {
     /// Write `self` in KIF format.
     ///
     /// This function returns Err(core::fmt::Error)
@@ -19,7 +19,7 @@ pub trait ToKIF {
     }
 }
 
-impl ToKIF for JsonKifFormat {
+impl ToKif for JsonKifFormat {
     fn to_kif<W: Write>(&self, sink: &mut W) -> Result {
         Ok(())
     }

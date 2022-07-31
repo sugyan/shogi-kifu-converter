@@ -1,4 +1,4 @@
-use shogi_kifu_converter::converter::ToCSA;
+use shogi_kifu_converter::converter::ToCsa;
 use shogi_kifu_converter::error::ConvertError;
 use shogi_kifu_converter::parser::parse_kif_file;
 use std::env;
