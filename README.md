@@ -22,7 +22,7 @@ See https://github.com/na2hiro/json-kifu-format.
 
 ## Examples
 
-```sh
+```
 cargo run --example csa2jkf <CSA file>
 cargo run --example csa2kif <CSA file>
 cargo run --example kif2jkf <KIF file>
