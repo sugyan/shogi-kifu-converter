@@ -1,6 +1,6 @@
 use crate::error::ConvertError;
 use crate::jkf::*;
-use crate::normalizer::{normalize, HIRATE_BOARD};
+use crate::normalizer::HIRATE_BOARD;
 use csa::{GameRecord, Position};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -51,14 +51,11 @@ impl TryFrom<GameRecord> for JsonKifuFormat {
         for m in record.moves {
             moves.push(m.try_into()?);
         }
-        // Create JsonKifuFormat, and normalize it
-        let mut jkf = Self {
+        Ok(Self {
             header,
             initial,
             moves,
-        };
-        normalize(&mut jkf)?;
-        Ok(jkf)
+        })
     }
 }
 

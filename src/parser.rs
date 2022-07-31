@@ -17,7 +17,9 @@ pub fn parse_csa_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, Convert
 }
 
 pub fn parse_csa_str(s: &str) -> Result<JsonKifuFormat, ConvertError> {
-    csa::parse_csa(s)?.try_into()
+    let mut jkf = csa::parse_csa(s)?.try_into()?;
+    normalize(&mut jkf)?;
+    Ok(jkf)
 }
 
 pub fn parse_kif_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ConvertError> {
