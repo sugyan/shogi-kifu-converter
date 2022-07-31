@@ -69,10 +69,14 @@ fn write_place<W: Write>(place: &Option<PlaceFormat>, sink: &mut W) -> Result {
 fn write_header<W: Write>(header: &HashMap<String, String>, sink: &mut W) -> Result {
     sink.write_str("V2.2\n")?;
     if let Some(s) = header.get("先手").or_else(|| header.get("下手")) {
-        sink.write_fmt(format_args!("N+{}\n", s))?;
+        if !s.is_empty() {
+            sink.write_fmt(format_args!("N+{}\n", s))?;
+        }
     }
     if let Some(s) = header.get("後手").or_else(|| header.get("上手")) {
-        sink.write_fmt(format_args!("N-{}\n", s))?;
+        if !s.is_empty() {
+            sink.write_fmt(format_args!("N-{}\n", s))?;
+        }
     }
     if let Some(s) = header.get("棋戦") {
         sink.write_fmt(format_args!("$EVENT:{}\n", s))?;
@@ -128,19 +132,20 @@ fn write_initial_data<W: Write>(data: &StateFormat, sink: &mut W) -> Result {
 
 fn write_initial_preset<W: Write>(preset: Preset, sink: &mut W) -> Result {
     match preset {
-        Preset::PresetHirate => sink.write_str("PI\n")?,
-        Preset::PresetKY => sink.write_str("PI11KY\n")?,
-        Preset::PresetKYR => sink.write_str("PI91KY\n")?,
-        Preset::PresetKA => sink.write_str("PI22KA\n")?,
-        Preset::PresetHI => sink.write_str("PI82HI\n")?,
-        Preset::PresetHIKY => sink.write_str("PI82HI11KY\n")?,
-        Preset::Preset2 => sink.write_str("PI82HI22KA\n")?,
-        Preset::Preset4 => sink.write_str("PI82HI22KA91KY11KY\n")?,
-        Preset::Preset6 => sink.write_str("PI82HI22KA91KY11KY81KE21KE\n")?,
-        Preset::Preset8 => sink.write_str("PI82HI22KA91KY11KY81KE21KE71GI31GI\n")?,
-        Preset::Preset10 => sink.write_str("PI82HI22KA91KY11KY81KE21KE71GI31GI61KI41KI\n")?,
+        Preset::PresetHirate => sink.write_str("PI")?,
+        Preset::PresetKY => sink.write_str("PI11KY")?,
+        Preset::PresetKYR => sink.write_str("PI91KY")?,
+        Preset::PresetKA => sink.write_str("PI22KA")?,
+        Preset::PresetHI => sink.write_str("PI82HI")?,
+        Preset::PresetHIKY => sink.write_str("PI82HI11KY")?,
+        Preset::Preset2 => sink.write_str("PI82HI22KA")?,
+        Preset::Preset4 => sink.write_str("PI82HI22KA91KY11KY")?,
+        Preset::Preset6 => sink.write_str("PI82HI22KA91KY11KY81KE21KE")?,
+        Preset::Preset8 => sink.write_str("PI82HI22KA91KY11KY81KE21KE71GI31GI")?,
+        Preset::Preset10 => sink.write_str("PI82HI22KA91KY11KY81KE21KE71GI31GI61KI41KI")?,
         _ => unimplemented!(),
     }
+    sink.write_char('\n')?;
     if preset == Preset::PresetHirate {
         sink.write_char('+')?;
     } else {
