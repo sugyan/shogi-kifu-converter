@@ -2,6 +2,12 @@
 name = "shogi-kifu-converter"
 version = "0.1.0"
 edition = "2021"
+license-file = "LICENSE"
+description = "Shogi kifu parsers and converters"
+repository = "https://github.com/sugyan/shogi-kifu-converter"
+readme = "README.md"
+keywords = ["shogi", "kifu", "json-kifu-format"]
+authors = ["sugyan <sugi1982+github@gmail.com>"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
