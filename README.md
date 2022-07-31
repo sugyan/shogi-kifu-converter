@@ -18,7 +18,7 @@ graph LR;
 
 ## About json-kifu-format (JKF)
 
-See https://github.com/na2hiro/json-kifu-format.
+See [github.com/na2hiro/json-kifu-format](https://github.com/na2hiro/json-kifu-format).
 
 ## Examples
 

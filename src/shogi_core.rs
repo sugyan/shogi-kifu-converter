@@ -1,19 +1,7 @@
+use crate::error::CoreConvertError;
 use crate::jkf;
 use crate::jkf::{Color::*, Kind::*, Preset::*};
 use shogi_core::{Color, Move, PartialPosition, Piece, PieceKind, Position, Square};
-use thiserror::Error;
-
-#[derive(Error, Debug)]
-pub enum CoreConvertError {
-    #[error("Invalid initial board: no data with preset `OTHER`")]
-    InitialBoardNoDataWithPresetOTHER,
-    #[error("Invalid initial hands: {0:?}")]
-    InitialHands(jkf::Kind),
-    #[error("Invalid place: {0:?}")]
-    InvalidPlace((u8, u8)),
-    #[error("Invalid move: {0:?}")]
-    InvalidMove(Move),
-}
 
 impl From<jkf::Color> for Color {
     fn from(c: jkf::Color) -> Self {
@@ -109,9 +97,7 @@ impl TryFrom<&jkf::Initial> for PartialPosition {
                         (hand.HI, PieceKind::Rook),
                     ] {
                         for _ in 0..num {
-                            *h = h
-                                .added(pk)
-                                .ok_or_else(|| CoreConvertError::InitialHands(pk.into()))?;
+                            *h = h.added(pk).ok_or(CoreConvertError::InitialHands(pk))?;
                         }
                     }
                 }

@@ -1,7 +1,8 @@
-use crate::error::ConvertError;
+//! Parsers for [`jkf::JsonKifuFormat`](crate::jkf::JsonKifuFormat)
+
+use crate::error::{ConvertError, ParserError};
 use crate::jkf::JsonKifuFormat;
 use crate::kif;
-use crate::normalizer::normalize;
 use encoding_rs::{SHIFT_JIS, UTF_8};
 use nom::error::convert_error;
 use nom::Finish;
@@ -9,6 +10,7 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
 
+/// Parses a CSA file to [`jkf::JsonKifuFormat`](crate::jkf::JsonKifuFormat)
 pub fn parse_csa_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ConvertError> {
     let mut file = File::open(&path)?;
     let mut buf = String::new();
@@ -16,42 +18,50 @@ pub fn parse_csa_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, Convert
     parse_csa_str(&buf)
 }
 
+/// Parses a CSA formatted string to [`jkf::JsonKifuFormat`](crate::jkf::JsonKifuFormat)
 pub fn parse_csa_str(s: &str) -> Result<JsonKifuFormat, ConvertError> {
-    let mut jkf = csa::parse_csa(s)?.try_into()?;
-    normalize(&mut jkf)?;
+    let mut jkf = JsonKifuFormat::try_from(csa::parse_csa(s)?)?;
+    jkf.normalize()?;
     Ok(jkf)
 }
 
+/// Parses a KIF file to [`jkf::JsonKifuFormat`](crate::jkf::JsonKifuFormat)
+///
+/// If the file extension is `.kif`, it is decoded as Shift-JIS, and if it is `.kifu`, it is decoded as UTF-8 and parsed.
+///
+/// See: [http://kakinoki.o.oo7.jp/kif_format.html](http://kakinoki.o.oo7.jp/kif_format.html)
 pub fn parse_kif_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ConvertError> {
     let mut file = File::open(&path)?;
     let ext = path
         .as_ref()
         .extension()
-        .ok_or(ConvertError::FileExtensionError)?;
+        .ok_or(ParserError::FileExtensionError)?;
     let encoding = match ext.to_str() {
         Some("kif") => SHIFT_JIS,
         Some("kifu") => UTF_8,
-        _ => return Err(ConvertError::FileExtensionError),
+        _ => return Err(ConvertError::Parser(ParserError::FileExtensionError)),
     };
     let mut buf = Vec::new();
     file.read_to_end(&mut buf)?;
     let (cow, _, had_errors) = encoding.decode(&buf);
     if had_errors {
-        return Err(ConvertError::DecodeError);
+        return Err(ConvertError::Parser(ParserError::DecodeError));
     }
     parse_kif_str(&cow)
 }
 
+/// Parses a KIF formatted string to [`jkf::JsonKifuFormat`](crate::jkf::JsonKifuFormat)
 pub fn parse_kif_str(s: &str) -> Result<JsonKifuFormat, ConvertError> {
     match kif::parse(s).finish() {
         Ok((_, mut jkf)) => {
-            normalize(&mut jkf)?;
+            jkf.normalize()?;
             Ok(jkf)
         }
         Err(err) => Err(ConvertError::KifError(convert_error(s, err))),
     }
 }
 
+/// Parses a JSON file to [`jkf::JsonKifuFormat`](crate::jkf::JsonKifuFormat)
 pub fn parse_jkf_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ConvertError> {
     let file = File::open(&path)?;
     match serde_json::from_reader::<_, JsonKifuFormat>(BufReader::new(file)) {
@@ -60,6 +70,7 @@ pub fn parse_jkf_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, Convert
     }
 }
 
+/// Parses a JSON file to [`jkf::JsonKifuFormat`](crate::jkf::JsonKifuFormat)
 pub fn parse_jkf_str(s: &str) -> Result<JsonKifuFormat, ConvertError> {
     match serde_json::from_str::<JsonKifuFormat>(s) {
         Ok(jkf) => Ok(jkf),

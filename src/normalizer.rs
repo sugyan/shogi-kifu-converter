@@ -1,17 +1,7 @@
+use crate::error::{CoreConvertError, NormalizerError};
 use crate::jkf::*;
-use crate::shogi_core::CoreConvertError;
 use shogi_core::{PartialPosition, PieceKind};
 use shogi_official_kifu::display_single_move_kansuji;
-use std::ops::AddAssign;
-use thiserror::Error;
-
-#[derive(Error, Debug)]
-pub enum NormalizerError {
-    #[error("Convert Error: {0}")]
-    CoreConvert(#[from] CoreConvertError),
-    #[error("Invalid move: {0}")]
-    MoveInconsistent(&'static str),
-}
 
 pub(crate) const HIRATE_BOARD: [[Piece; 9]; 9] = {
     #[rustfmt::skip]
@@ -237,49 +227,49 @@ impl Hand {
     }
 }
 
-impl AddAssign for TimeFormat {
-    fn add_assign(&mut self, rhs: Self) {
-        let s = (self.h.unwrap_or_default() + rhs.h.unwrap_or_default()) as u64 * 3600
-            + (self.m + rhs.m) as u64 * 60
-            + (self.s + rhs.s) as u64;
-        let m = (s / 60) % 60;
-        let h = s / 3600;
-        self.h = Some(h as u8);
-        self.m = m as u8;
-        self.s = (s % 60) as u8;
+fn add_timeformat(lhs: &TimeFormat, rhs: &TimeFormat) -> TimeFormat {
+    let s = (lhs.h.unwrap_or_default() + rhs.h.unwrap_or_default()) as u64 * 3600
+        + (lhs.m + rhs.m) as u64 * 60
+        + (lhs.s + rhs.s) as u64;
+    let m = (s / 60) % 60;
+    let h = s / 3600;
+    TimeFormat {
+        h: Some(h as u8),
+        m: m as u8,
+        s: (s % 60) as u8,
     }
 }
 
-impl From<shogi_core::PieceKind> for Kind {
-    fn from(pk: shogi_core::PieceKind) -> Self {
-        match pk {
-            shogi_core::PieceKind::Pawn => Kind::FU,
-            shogi_core::PieceKind::Lance => Kind::KY,
-            shogi_core::PieceKind::Knight => Kind::KE,
-            shogi_core::PieceKind::Silver => Kind::GI,
-            shogi_core::PieceKind::Gold => Kind::KI,
-            shogi_core::PieceKind::Bishop => Kind::KA,
-            shogi_core::PieceKind::Rook => Kind::HI,
-            shogi_core::PieceKind::King => Kind::OU,
-            shogi_core::PieceKind::ProPawn => Kind::TO,
-            shogi_core::PieceKind::ProLance => Kind::NY,
-            shogi_core::PieceKind::ProKnight => Kind::NK,
-            shogi_core::PieceKind::ProSilver => Kind::NG,
-            shogi_core::PieceKind::ProBishop => Kind::UM,
-            shogi_core::PieceKind::ProRook => Kind::RY,
-        }
+fn pk2k(pk: shogi_core::PieceKind) -> Kind {
+    match pk {
+        shogi_core::PieceKind::Pawn => Kind::FU,
+        shogi_core::PieceKind::Lance => Kind::KY,
+        shogi_core::PieceKind::Knight => Kind::KE,
+        shogi_core::PieceKind::Silver => Kind::GI,
+        shogi_core::PieceKind::Gold => Kind::KI,
+        shogi_core::PieceKind::Bishop => Kind::KA,
+        shogi_core::PieceKind::Rook => Kind::HI,
+        shogi_core::PieceKind::King => Kind::OU,
+        shogi_core::PieceKind::ProPawn => Kind::TO,
+        shogi_core::PieceKind::ProLance => Kind::NY,
+        shogi_core::PieceKind::ProKnight => Kind::NK,
+        shogi_core::PieceKind::ProSilver => Kind::NG,
+        shogi_core::PieceKind::ProBishop => Kind::UM,
+        shogi_core::PieceKind::ProRook => Kind::RY,
     }
 }
 
-pub(crate) fn normalize(jkf: &mut JsonKifuFormat) -> Result<(), NormalizerError> {
-    normalize_initial(jkf)?;
-    let pos = if let Some(initial) = &jkf.initial {
-        initial.try_into()?
-    } else {
-        PartialPosition::startpos()
-    };
-    normalize_moves(&mut jkf.moves[1..], pos, [TimeFormat::default(); 2])?;
-    Ok(())
+impl JsonKifuFormat {
+    pub fn normalize(&mut self) -> Result<(), NormalizerError> {
+        normalize_initial(self)?;
+        let pos = if let Some(initial) = &self.initial {
+            initial.try_into()?
+        } else {
+            PartialPosition::startpos()
+        };
+        normalize_moves(&mut self.moves[1..], pos, [TimeFormat::default(); 2])?;
+        Ok(())
+    }
 }
 
 fn normalize_initial(jkf: &mut JsonKifuFormat) -> Result<(), NormalizerError> {
@@ -345,7 +335,8 @@ fn normalize_moves(
         }
         // Calculate total time
         if let Some(time) = &mut mf.time {
-            totals[pos.side_to_move().array_index()] += time.now;
+            totals[pos.side_to_move().array_index()] =
+                add_timeformat(&totals[pos.side_to_move().array_index()], &time.now);
             time.total = totals[pos.side_to_move().array_index()];
         }
         if let Some(mmf) = &mut mf.move_ {
@@ -357,10 +348,10 @@ fn normalize_moves(
                 mmf.to = pos
                     .last_move()
                     .map(|mv| PlaceFormat {
-                        x: mv.to().file(),
-                        y: mv.to().rank(),
+                        x: mv.to().file() as u8,
+                        y: mv.to().rank() as u8,
                     })
-                    .ok_or(CoreConvertError::InvalidPlace((0, 0)))?
+                    .ok_or(NormalizerError::NoLastMove)?;
             }
             let to = shogi_core::Square::try_from(&mmf.to)?;
             if let Some(from) = &mmf.from {
@@ -376,7 +367,7 @@ fn normalize_moves(
                 } else {
                     mmf.piece.into()
                 };
-                mmf.piece = from_piece_kind.into();
+                mmf.piece = pk2k(from_piece_kind);
                 // Set same?
                 if pos
                     .last_move()
@@ -394,7 +385,7 @@ fn normalize_moves(
                 }
                 // Set capture?
                 if let Some(p) = pos.piece_at(to) {
-                    mmf.capture = Some(p.piece_kind().into());
+                    mmf.capture = Some(pk2k(p.piece_kind()));
                 }
             }
             let mv = (&*mmf).try_into()?;

@@ -1,117 +1,185 @@
+//! [`JsonKifuFormat`](crate::jkf::JsonKifuFormat) types
+//!
+//! Reference: [https://apps.81.la/json-kifu-format/docs/modules/Formats.html](https://apps.81.la/json-kifu-format/docs/modules/Formats.html)
+
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::collections::HashMap;
 
+/// A representation of a side-to-move
 #[derive(Serialize_repr, Deserialize_repr, Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Color {
+    /// 先手
     Black = 0,
+    /// 後手
     White = 1,
 }
 
+/// A representation of a piece kind
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Kind {
+    /// 歩兵
     FU = 0,
+    /// 香車
     KY = 1,
+    /// 桂馬
     KE = 2,
+    /// 銀将
     GI = 3,
+    /// 金将
     KI = 4,
+    /// 角行
     KA = 5,
+    /// 飛車
     HI = 6,
+    /// 玉将
     OU = 7,
+    /// と金
     TO = 8,
+    /// 成香
     NY = 9,
+    /// 成桂
     NK = 10,
+    /// 成銀
     NG = 11,
+    /// 竜馬
     UM = 12,
+    /// 竜王
     RY = 13,
 }
 
+/// A representation of a initial state preset
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Preset {
+    /// 平手
     #[serde(rename = "HIRATE")]
-    PresetHirate, // 平手
+    PresetHirate,
+    /// 香落ち
     #[serde(rename = "KY")]
-    PresetKY, // 香落ち
+    PresetKY,
+    /// 右香落ち
     #[serde(rename = "KY_R")]
-    PresetKYR, // 右香落ち
+    PresetKYR,
+    /// 角落ち
     #[serde(rename = "KA")]
-    PresetKA, // 角落ち
+    PresetKA,
+    /// 飛車落ち
     #[serde(rename = "HI")]
-    PresetHI, // 飛車落ち
+    PresetHI,
+    /// 飛香落ち
     #[serde(rename = "HIKY")]
-    PresetHIKY, // 飛香落ち
+    PresetHIKY,
+    /// 二枚落ち
     #[serde(rename = "2")]
-    Preset2, // 二枚落ち
+    Preset2,
+    /// 三枚落ち
     #[serde(rename = "3")]
-    Preset3, // 三枚落ち
+    Preset3,
+    /// 四枚落ち
     #[serde(rename = "4")]
-    Preset4, // 四枚落ち
+    Preset4,
+    /// 五枚落ち
     #[serde(rename = "5")]
-    Preset5, // 五枚落ち
+    Preset5,
+    /// 左五枚落ち
     #[serde(rename = "5_L")]
-    Preset5L, // 左五枚落ち
+    Preset5L,
+    /// 六枚落ち
     #[serde(rename = "6")]
-    Preset6, // 六枚落ち
+    Preset6,
+    /// 左七枚落ち
     #[serde(rename = "7_L")]
-    Preset7L, // 左七枚落ち
+    Preset7L,
+    /// 右七枚落ち
     #[serde(rename = "7_R")]
-    Preset7R, // 右七枚落ち
+    Preset7R,
+    /// 八枚落ち
     #[serde(rename = "8")]
-    Preset8, // 八枚落ち
+    Preset8,
+    /// 十枚落ち
     #[serde(rename = "10")]
-    Preset10, // 十枚落ち
+    Preset10,
+    /// その他
     #[serde(rename = "OTHER")]
-    PresetOther, // その他
+    PresetOther,
 }
 
+/// A representation of a relative position information
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Relative {
-    L, // 左
-    C, // 直
-    R, // 右
-    U, // 上
-    M, // 寄
-    D, // 引
+    /// 左
+    L,
+    // 直
+    C,
+    /// 右
+    R,
+    /// 上
+    U,
+    /// 寄
+    M,
+    /// 引
+    D,
+    /// 左上
     LU,
+    /// 左引
     LD,
+    /// 右上
     RU,
+    /// 右引
     RD,
-    H, // 打
+    /// 打
+    H,
 }
 
+/// A representation of a special move
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum MoveSpecial {
+    /// 投了
     #[serde(rename = "TORYO")]
-    SpecialToryo, // 投了
+    SpecialToryo,
+    /// 中断
     #[serde(rename = "CHUDAN")]
-    SpecialChudan, // 中断
+    SpecialChudan,
+    /// 千日手
     #[serde(rename = "SENNICHITE")]
-    SpecialSennichite, // 千日手
+    SpecialSennichite,
+    /// 手番側が時間切れで負け、切れ負け
     #[serde(rename = "TIME_UP")]
-    SpecialTimeUp, // 手番側が時間切れで負け、切れ負け
+    SpecialTimeUp,
+    /// 反則負け
     #[serde(rename = "ILLEGAL_MOVE")]
-    SpecialIllegalMove, // 反則負け
+    SpecialIllegalMove,
+    /// 先手(下手)の反則行為により、後手(上手)の勝ち
     #[serde(rename = "+ILLEGAL_ACTION")]
-    SpecialIllegalActionBlack, // 先手(下手)の反則行為により、後手(上手)の勝ち
+    SpecialIllegalActionBlack,
+    /// 後手(上手)の反則行為により、先手(下手)の勝ち
     #[serde(rename = "-ILLEGAL_ACTION")]
-    SpecialIllegalActionWhite, // 後手(上手)の反則行為により、先手(下手)の勝ち
+    SpecialIllegalActionWhite,
+    /// 持将棋
     #[serde(rename = "JISHOGI")]
-    SpecialJishogi, // 持将棋
+    SpecialJishogi,
+    /// (入玉で)勝ちの宣言
     #[serde(rename = "KACHI")]
-    SpecialKachi, // (入玉で)勝ちの宣言
+    SpecialKachi,
+    /// (入玉で)引き分けの宣言
     #[serde(rename = "HIKIWAKE")]
-    SpecialHikiwake, // (入玉で)引き分けの宣言
+    SpecialHikiwake,
+    /// 待った
     #[serde(rename = "MATTA")]
-    SpecialMatta, // 待った
+    SpecialMatta,
+    /// 詰み
     #[serde(rename = "TSUMI")]
-    SpecialTsumi, // 詰み
+    SpecialTsumi,
+    /// 不詰
     #[serde(rename = "FUZUMI")]
-    SpecialFuzumi, // 不詰
+    SpecialFuzumi,
+    /// エラー
     #[serde(rename = "ERROR")]
-    SpecialError, // エラー
+    SpecialError,
 }
 
+/// The type translated from [`IJSONKifuFormat`](https://apps.81.la/json-kifu-format/docs/interfaces/Formats.IJSONKifuFormat.html)
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct JsonKifuFormat {
     pub header: HashMap<String, String>,
@@ -129,6 +197,7 @@ impl Default for JsonKifuFormat {
     }
 }
 
+/// The Initial state for [`JsonKifuFormat`]
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Initial {
     pub preset: Preset,
@@ -136,6 +205,7 @@ pub struct Initial {
     pub data: Option<StateFormat>,
 }
 
+/// The type translated from [`IStateFormat`](https://apps.81.la/json-kifu-format/docs/interfaces/Formats.IStateFormat.html)
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StateFormat {
     pub color: Color,
@@ -143,6 +213,7 @@ pub struct StateFormat {
     pub hands: [Hand; 2],
 }
 
+/// The numbers of hand pieces for [`StateFormat::hands`]
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[allow(non_snake_case)]
 pub struct Hand {
@@ -155,6 +226,7 @@ pub struct Hand {
     pub HI: u8,
 }
 
+/// The type translated from [`IPiece`](https://apps.81.la/json-kifu-format/docs/interfaces/Formats.IPiece.html)
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Piece {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -163,6 +235,7 @@ pub struct Piece {
     pub kind: Option<Kind>,
 }
 
+/// The type translated from [`IMoveFormat`](https://apps.81.la/json-kifu-format/docs/interfaces/Formats.IMoveFormat.html)
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub struct MoveFormat {
     #[serde(rename = "move")]
@@ -178,6 +251,7 @@ pub struct MoveFormat {
     pub forks: Option<Vec<Vec<MoveFormat>>>,
 }
 
+/// The type translated from [`IMoveMoveFormat`](https://apps.81.la/json-kifu-format/docs/interfaces/Formats.IMoveMoveFormat.html)
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MoveMoveFormat {
     pub color: Color,
@@ -195,18 +269,21 @@ pub struct MoveMoveFormat {
     pub relative: Option<Relative>,
 }
 
+/// The type translated from [`IPlaceFormat`](https://apps.81.la/json-kifu-format/docs/interfaces/Formats.IPlaceFormat.html)
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PlaceFormat {
     pub x: u8,
     pub y: u8,
 }
 
+/// The time data for [`MoveFormat::time`]
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Time {
     pub now: TimeFormat,
     pub total: TimeFormat,
 }
 
+/// The type translated from [`ITimeFormat`](https://apps.81.la/json-kifu-format/docs/interfaces/Formats.ITimeFormat.html)
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TimeFormat {
     #[serde(skip_serializing_if = "Option::is_none")]

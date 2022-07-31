@@ -1,3 +1,7 @@
+//! Converters for [`jkf::JsonKifuFormat`](crate::jkf::JsonKifuFormat)
+//!
+//! Also provides implementation [`shogi_core::ToUsi`] for [`jkf::JsonKifuFormat`](crate::jkf::JsonKifuFormat)
+
 mod csa;
 mod kif;
 

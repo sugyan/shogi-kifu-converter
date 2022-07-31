@@ -1,21 +1,12 @@
-use crate::error::ConvertError;
+use crate::error::CsaConvertError;
 use crate::jkf::*;
 use crate::normalizer::HIRATE_BOARD;
 use csa::{GameRecord, Position};
 use std::collections::HashMap;
 use std::time::Duration;
-use thiserror::Error;
-
-#[derive(Error, Debug)]
-pub enum CsaConvertError {
-    #[error("Zero Square")]
-    SquareZero,
-    #[error("AL PieceType")]
-    PieceTypeAll,
-}
 
 impl TryFrom<GameRecord> for JsonKifuFormat {
-    type Error = ConvertError;
+    type Error = CsaConvertError;
 
     fn try_from(record: GameRecord) -> Result<Self, Self::Error> {
         // Header
