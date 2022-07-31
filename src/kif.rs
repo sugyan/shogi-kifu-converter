@@ -508,7 +508,7 @@ fn entire_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str
     )(input)
 }
 
-pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifFormat, VerboseError<&str>> {
+pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifuFormat, VerboseError<&str>> {
     map(
         tuple((informations, opt(board), informations, entire_moves)),
         |(info1, opt_board, info2, moves)| {
@@ -528,7 +528,7 @@ pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifFormat, VerboseError<&s
                     data: None,
                 })
             };
-            JsonKifFormat {
+            JsonKifuFormat {
                 header: info.map,
                 initial,
                 moves,

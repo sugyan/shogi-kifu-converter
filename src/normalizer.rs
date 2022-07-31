@@ -271,7 +271,7 @@ impl From<shogi_core::PieceKind> for Kind {
     }
 }
 
-pub(crate) fn normalize(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
+pub(crate) fn normalize(jkf: &mut JsonKifuFormat) -> Result<(), NormalizerError> {
     normalize_initial(jkf)?;
     let pos = if let Some(initial) = &jkf.initial {
         initial.try_into()?
@@ -282,7 +282,7 @@ pub(crate) fn normalize(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> 
     Ok(())
 }
 
-fn normalize_initial(jkf: &mut JsonKifFormat) -> Result<(), NormalizerError> {
+fn normalize_initial(jkf: &mut JsonKifuFormat) -> Result<(), NormalizerError> {
     if let Some(initial) = &mut jkf.initial {
         *initial = match initial.data {
             Some(STATE_HIRATE) => Initial {

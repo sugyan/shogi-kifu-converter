@@ -1,5 +1,5 @@
 use crate::error::ConvertError;
-use crate::jkf::JsonKifFormat;
+use crate::jkf::JsonKifuFormat;
 use crate::kif;
 use crate::normalizer::normalize;
 use encoding_rs::{SHIFT_JIS, UTF_8};
@@ -9,18 +9,18 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
 
-pub fn parse_csa_file<P: AsRef<Path>>(path: P) -> Result<JsonKifFormat, ConvertError> {
+pub fn parse_csa_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ConvertError> {
     let mut file = File::open(&path)?;
     let mut buf = String::new();
     file.read_to_string(&mut buf)?;
     parse_csa_str(&buf)
 }
 
-pub fn parse_csa_str(s: &str) -> Result<JsonKifFormat, ConvertError> {
+pub fn parse_csa_str(s: &str) -> Result<JsonKifuFormat, ConvertError> {
     csa::parse_csa(s)?.try_into()
 }
 
-pub fn parse_kif_file<P: AsRef<Path>>(path: P) -> Result<JsonKifFormat, ConvertError> {
+pub fn parse_kif_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ConvertError> {
     let mut file = File::open(&path)?;
     let ext = path
         .as_ref()
@@ -40,7 +40,7 @@ pub fn parse_kif_file<P: AsRef<Path>>(path: P) -> Result<JsonKifFormat, ConvertE
     parse_kif_str(&cow)
 }
 
-pub fn parse_kif_str(s: &str) -> Result<JsonKifFormat, ConvertError> {
+pub fn parse_kif_str(s: &str) -> Result<JsonKifuFormat, ConvertError> {
     match kif::parse(s).finish() {
         Ok((_, mut jkf)) => {
             normalize(&mut jkf)?;
@@ -50,16 +50,16 @@ pub fn parse_kif_str(s: &str) -> Result<JsonKifFormat, ConvertError> {
     }
 }
 
-pub fn parse_jkf_file<P: AsRef<Path>>(path: P) -> Result<JsonKifFormat, ConvertError> {
+pub fn parse_jkf_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ConvertError> {
     let file = File::open(&path)?;
-    match serde_json::from_reader::<_, JsonKifFormat>(BufReader::new(file)) {
+    match serde_json::from_reader::<_, JsonKifuFormat>(BufReader::new(file)) {
         Ok(jkf) => Ok(jkf),
         Err(err) => Err(ConvertError::SerdeError(err)),
     }
 }
 
-pub fn parse_jkf_str(s: &str) -> Result<JsonKifFormat, ConvertError> {
-    match serde_json::from_str::<JsonKifFormat>(s) {
+pub fn parse_jkf_str(s: &str) -> Result<JsonKifuFormat, ConvertError> {
+    match serde_json::from_str::<JsonKifuFormat>(s) {
         Ok(jkf) => Ok(jkf),
         Err(err) => Err(ConvertError::SerdeError(err)),
     }
@@ -86,7 +86,7 @@ mod tests {
             // Load exptected JSON
             assert!(path.set_extension("json"));
             let file = File::open(&path)?;
-            let mut expected = serde_json::from_reader::<_, JsonKifFormat>(BufReader::new(file))
+            let mut expected = serde_json::from_reader::<_, JsonKifuFormat>(BufReader::new(file))
                 .expect("failed to parse json");
             // Remove all move comments (they cannot be restored from csa...)
             expected.moves.iter_mut().for_each(|m| m.comments = None);

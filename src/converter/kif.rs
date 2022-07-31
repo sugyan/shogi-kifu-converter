@@ -23,7 +23,7 @@ pub trait ToKif {
     }
 }
 
-impl ToKif for JsonKifFormat {
+impl ToKif for JsonKifuFormat {
     fn to_kif<W: Write>(&self, sink: &mut W) -> Result {
         write_header(&self.header, sink)?;
         write_initial(&self.initial, sink)?;
@@ -301,7 +301,7 @@ mod tests {
 手数----指手---------消費時間--
    1 中断
 "#[1..],
-            JsonKifFormat::default().to_kif_owned()
+            JsonKifuFormat::default().to_kif_owned()
         );
     }
 }

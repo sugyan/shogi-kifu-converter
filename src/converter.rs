@@ -3,10 +3,10 @@ mod kif;
 
 pub use self::csa::ToCsa;
 pub use self::kif::ToKif;
-use crate::jkf::JsonKifFormat;
+use crate::jkf::JsonKifuFormat;
 use shogi_core::{PartialPosition, Position, ToUsi};
 
-impl ToUsi for JsonKifFormat {
+impl ToUsi for JsonKifuFormat {
     fn to_usi<W: std::fmt::Write>(&self, sink: &mut W) -> std::fmt::Result {
         let pos = Position::try_from(self).expect("failed to convert initial to position");
         if pos.initial_position() == &PartialPosition::startpos() {

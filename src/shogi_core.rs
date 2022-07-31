@@ -146,10 +146,10 @@ impl TryFrom<&jkf::Initial> for PartialPosition {
     }
 }
 
-impl TryFrom<&jkf::JsonKifFormat> for Position {
+impl TryFrom<&jkf::JsonKifuFormat> for Position {
     type Error = CoreConvertError;
 
-    fn try_from(jkf: &jkf::JsonKifFormat) -> Result<Self, Self::Error> {
+    fn try_from(jkf: &jkf::JsonKifuFormat) -> Result<Self, Self::Error> {
         let mut pos = if let Some(initial) = &jkf.initial {
             Position::arbitrary_position(initial.try_into()?)
         } else {

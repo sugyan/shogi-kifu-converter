@@ -113,15 +113,15 @@ pub enum MoveSpecial {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct JsonKifFormat {
+pub struct JsonKifuFormat {
     pub header: HashMap<String, String>,
     pub initial: Option<Initial>,
     pub moves: Vec<MoveFormat>,
 }
 
-impl Default for JsonKifFormat {
+impl Default for JsonKifuFormat {
     fn default() -> Self {
-        JsonKifFormat {
+        JsonKifuFormat {
             header: HashMap::new(),
             initial: None,
             moves: vec![MoveFormat::default()],
@@ -257,7 +257,7 @@ mod tests {
                 let file = File::open(&path)?;
                 let reader = BufReader::new(file);
                 assert!(
-                    serde_json::from_reader::<_, JsonKifFormat>(reader).is_ok(),
+                    serde_json::from_reader::<_, JsonKifuFormat>(reader).is_ok(),
                     "failed to deserialize: {}",
                     path.display()
                 );
@@ -270,7 +270,7 @@ mod tests {
     fn validate_default() -> Result<()> {
         let schema = load_schema()?;
 
-        let value = serde_json::to_value(&JsonKifFormat::default()).expect("failed to serialize");
+        let value = serde_json::to_value(&JsonKifuFormat::default()).expect("failed to serialize");
         let result = schema.validate(&value);
         if let Err(errors) = result {
             for err in errors {

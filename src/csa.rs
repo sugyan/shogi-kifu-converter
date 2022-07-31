@@ -14,7 +14,7 @@ pub enum CsaConvertError {
     PieceTypeAll,
 }
 
-impl TryFrom<GameRecord> for JsonKifFormat {
+impl TryFrom<GameRecord> for JsonKifuFormat {
     type Error = ConvertError;
 
     fn try_from(record: GameRecord) -> Result<Self, Self::Error> {
@@ -51,7 +51,7 @@ impl TryFrom<GameRecord> for JsonKifFormat {
         for m in record.moves {
             moves.push(m.try_into()?);
         }
-        // Create JsonKifFormat, and normalize it
+        // Create JsonKifuFormat, and normalize it
         let mut jkf = Self {
             header,
             initial,

@@ -20,7 +20,7 @@ pub trait ToCsa {
     }
 }
 
-impl ToCsa for JsonKifFormat {
+impl ToCsa for JsonKifuFormat {
     fn to_csa<W: Write>(&self, sink: &mut W) -> Result {
         write_header(&self.header, sink)?;
         write_initial(&self.initial, sink)?;
@@ -229,7 +229,7 @@ V2.2
 PI
 +
 "#[1..],
-            JsonKifFormat::default().to_csa_owned()
+            JsonKifuFormat::default().to_csa_owned()
         );
     }
 }
