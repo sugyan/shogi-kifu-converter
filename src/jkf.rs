@@ -17,7 +17,7 @@ pub enum Color {
 }
 
 /// A representation of a piece kind
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     /// 歩兵
     FU = 0,

@@ -52,17 +52,15 @@ impl TryFrom<GameRecord> for JsonKifuFormat {
 
 impl From<Position> for Initial {
     fn from(mut pos: Position) -> Self {
-        let mut pieces = [
-            (Kind::FU, 18),
-            (Kind::KY, 4),
-            (Kind::KE, 4),
-            (Kind::GI, 4),
-            (Kind::KI, 4),
-            (Kind::KA, 2),
-            (Kind::HI, 2),
-        ]
-        .into_iter()
-        .collect::<HashMap<_, _>>();
+        let mut all_pieces = Hand {
+            FU: 18,
+            KY: 4,
+            KE: 4,
+            GI: 4,
+            KI: 4,
+            KA: 2,
+            HI: 2,
+        };
         // split to hands' and board's
         let mut hand_pieces = Vec::new();
         pos.add_pieces.retain(|&(c, sq, pt)| {
@@ -108,7 +106,7 @@ impl From<Position> for Initial {
             for col in row {
                 if let Some(unpromoted) = col.kind.map(Kind::unpromoted) {
                     if unpromoted != Kind::OU {
-                        *pieces.get_mut(&unpromoted).unwrap() -= 1;
+                        all_pieces.decrement(unpromoted);
                     }
                 }
             }
@@ -117,12 +115,10 @@ impl From<Position> for Initial {
         let mut hands = [Hand::default(); 2];
         for &(c, pt) in &hand_pieces {
             let index = Into::<Color>::into(c) as usize;
-            if let Ok(kind) = pt.try_into() {
-                hands[index].add(kind);
-            } else {
-                for (&kind, &num) in &pieces {
-                    (0..num).for_each(|_| hands[index].add(kind));
-                }
+            match pt.try_into() {
+                Ok(kind) => hands[index].increment(kind),
+                // In case PieceType::All
+                Err(_) => hands[index] = all_pieces,
             }
         }
         Self {

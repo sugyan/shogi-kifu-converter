@@ -199,8 +199,7 @@ impl Hand {
             HI: 0,
         }
     }
-    #[allow(dead_code)]
-    pub(crate) fn add(&mut self, kind: Kind) {
+    pub(crate) fn increment(&mut self, kind: Kind) {
         match kind {
             Kind::FU => self.FU += 1,
             Kind::KY => self.KY += 1,
@@ -212,8 +211,7 @@ impl Hand {
             _ => unreachable!(),
         }
     }
-    #[allow(dead_code)]
-    pub(crate) fn sub(&mut self, kind: Kind) {
+    pub(crate) fn decrement(&mut self, kind: Kind) {
         match kind {
             Kind::FU => self.FU -= 1,
             Kind::KY => self.KY -= 1,
