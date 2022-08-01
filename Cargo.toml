@@ -2,11 +2,11 @@
 name = "shogi-kifu-converter"
 version = "0.1.0"
 edition = "2021"
-license-file = "LICENSE"
+license = "MIT"
 description = "Shogi kifu parsers and converters"
 repository = "https://github.com/sugyan/shogi-kifu-converter"
 documentation = "https://docs.rs/shogi-kifu-converter"
-readme = "README.md"
+readme = "README.crates.io.md"
 keywords = ["shogi", "kifu", "json-kifu-format"]
 authors = ["sugyan <sugi1982+github@gmail.com>"]
 exclude = ["data/", "examples/"]
