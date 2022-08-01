@@ -1,6 +1,6 @@
 [package]
 name = "shogi-kifu-converter"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT"
 description = "Shogi kifu parsers and converters"
