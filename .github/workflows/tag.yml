@@ -19,8 +19,9 @@ jobs:
         with:
           create-tag: false
           version-command: cargo read-manifest | jq -r .version
-      - uses: mathieudutour/github-tag-action@v5.6
+      - uses: mathieudutour/github-tag-action@v6.0
         with:
           custom_tag: ${{ steps.detect_tag.outputs.current-version }}
+          tag_prefix: ""
           github_token: ${{ secrets.github-token || secrets.GITHUB_TOKEN }}
         if: ${{ steps.detect_tag.outputs.previous-version != steps.detect_tag.outputs.current-version }}
