@@ -12,13 +12,3 @@ A Rust library that defines structs compatible with [json-kifu-format](https://g
 ## About json-kifu-format (JKF)
 
 See [github.com/na2hiro/json-kifu-format](https://github.com/na2hiro/json-kifu-format).
-
-## Examples
-
-```
-cargo run --example csa2jkf <CSA file>
-cargo run --example csa2kif <CSA file>
-cargo run --example kif2jkf <KIF file>
-cargo run --example kif2csa <KIF file>
-cargo run --example jkf2usi <JKF file>
-```
