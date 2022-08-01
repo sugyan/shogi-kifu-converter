@@ -12,3 +12,17 @@ A Rust library that defines structs compatible with [json-kifu-format](https://g
 ## About json-kifu-format (JKF)
 
 See [github.com/na2hiro/json-kifu-format](https://github.com/na2hiro/json-kifu-format).
+
+## Supporting formats and types
+
+### Parsers
+
+- CSA format
+- KIF format
+
+### Converters
+
+- [`ToUsi`](https://docs.rs/shogi-kifu-converter/latest/shogi_kifu_converter/jkf/struct.JsonKifuFormat.html#impl-ToUsi-for-JsonKifuFormat)
+- [`ToCsi`](https://docs.rs/shogi-kifu-converter/latest/shogi_kifu_converter/jkf/struct.JsonKifuFormat.html#impl-ToCsa-for-JsonKifuFormat)
+- [`ToKif`](https://docs.rs/shogi-kifu-converter/latest/shogi_kifu_converter/jkf/struct.JsonKifuFormat.html#impl-ToKif-for-JsonKifuFormat)
+- [`TryFrom<&jkf::JsonKifuFormat> for shogi_core::Position`](https://docs.rs/shogi-kifu-converter/latest/shogi_kifu_converter/jkf/struct.JsonKifuFormat.html#impl-TryFrom%3C%26JsonKifuFormat%3E-for-Position)
