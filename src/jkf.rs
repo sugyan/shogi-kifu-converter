@@ -110,7 +110,7 @@ pub enum Preset {
 pub enum Relative {
     /// 左
     L,
-    // 直
+    /// 直
     C,
     /// 右
     R,
@@ -133,7 +133,7 @@ pub enum Relative {
 }
 
 /// A representation of a special move
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MoveSpecial {
     /// 投了
     #[serde(rename = "TORYO")]
@@ -144,7 +144,7 @@ pub enum MoveSpecial {
     /// 千日手
     #[serde(rename = "SENNICHITE")]
     SpecialSennichite,
-    /// 手番側が時間切れで負け、切れ負け
+    /// 手番側が時間切れで負け・切れ負け
     #[serde(rename = "TIME_UP")]
     SpecialTimeUp,
     /// 反則負け
@@ -182,8 +182,11 @@ pub enum MoveSpecial {
 /// The type translated from [`IJSONKifuFormat`](https://apps.81.la/json-kifu-format/docs/interfaces/Formats.IJSONKifuFormat.html)
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct JsonKifuFormat {
+    /// 対局情報
     pub header: HashMap<String, String>,
+    /// 開始局面
     pub initial: Option<Initial>,
+    /// 指し手
     pub moves: Vec<MoveFormat>,
 }
 
@@ -200,16 +203,21 @@ impl Default for JsonKifuFormat {
 /// The Initial state for [`JsonKifuFormat`]
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Initial {
+    /// 手合割
     pub preset: Preset,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// 開始局面情報
     pub data: Option<StateFormat>,
 }
 
 /// The type translated from [`IStateFormat`](https://apps.81.la/json-kifu-format/docs/interfaces/Formats.IStateFormat.html)
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StateFormat {
+    /// 手番
     pub color: Color,
+    /// 盤面
     pub board: [[Piece; 9]; 9],
+    /// 持ち駒
     pub hands: [Hand; 2],
 }
 
@@ -217,20 +225,29 @@ pub struct StateFormat {
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[allow(non_snake_case)]
 pub struct Hand {
+    /// 歩兵
     pub FU: u8,
+    /// 香車
     pub KY: u8,
+    /// 桂馬
     pub KE: u8,
+    /// 銀将
     pub GI: u8,
+    /// 金将
     pub KI: u8,
+    /// 角行
     pub KA: u8,
+    /// 飛車
     pub HI: u8,
 }
 
 /// The type translated from [`IPiece`](https://apps.81.la/json-kifu-format/docs/interfaces/Formats.IPiece.html)
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Piece {
+    /// 手番
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<Color>,
+    /// 駒種
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kind: Option<Kind>,
 }
@@ -238,15 +255,20 @@ pub struct Piece {
 /// The type translated from [`IMoveFormat`](https://apps.81.la/json-kifu-format/docs/interfaces/Formats.IMoveFormat.html)
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub struct MoveFormat {
+    /// 駒移動・駒打ち
     #[serde(rename = "move")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub move_: Option<MoveMoveFormat>,
+    /// コメント
     #[serde(skip_serializing_if = "Option::is_none")]
     pub comments: Option<Vec<String>>,
+    /// 消費時間
     #[serde(skip_serializing_if = "Option::is_none")]
     pub time: Option<Time>,
+    /// 特殊な指し手(終局・中断など)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub special: Option<MoveSpecial>,
+    /// 分岐・変化手順
     #[serde(skip_serializing_if = "Option::is_none")]
     pub forks: Option<Vec<Vec<MoveFormat>>>,
 }
@@ -254,17 +276,25 @@ pub struct MoveFormat {
 /// The type translated from [`IMoveMoveFormat`](https://apps.81.la/json-kifu-format/docs/interfaces/Formats.IMoveMoveFormat.html)
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MoveMoveFormat {
+    /// 手番
     pub color: Color,
+    /// 移動元
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from: Option<PlaceFormat>,
+    /// 移動先
     pub to: PlaceFormat,
+    /// 駒種
     pub piece: Kind,
+    /// 同
     #[serde(skip_serializing_if = "Option::is_none")]
     pub same: Option<bool>,
+    /// 成
     #[serde(skip_serializing_if = "Option::is_none")]
     pub promote: Option<bool>,
+    /// 駒取り
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capture: Option<Kind>,
+    /// 相対位置・動作
     #[serde(skip_serializing_if = "Option::is_none")]
     pub relative: Option<Relative>,
 }
@@ -272,23 +302,30 @@ pub struct MoveMoveFormat {
 /// The type translated from [`IPlaceFormat`](https://apps.81.la/json-kifu-format/docs/interfaces/Formats.IPlaceFormat.html)
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PlaceFormat {
+    /// 筋
     pub x: u8,
+    /// 段
     pub y: u8,
 }
 
 /// The time data for [`MoveFormat::time`]
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Time {
+    /// 消費時間
     pub now: TimeFormat,
+    /// 累積消費時間
     pub total: TimeFormat,
 }
 
 /// The type translated from [`ITimeFormat`](https://apps.81.la/json-kifu-format/docs/interfaces/Formats.ITimeFormat.html)
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TimeFormat {
+    /// 時間
     #[serde(skip_serializing_if = "Option::is_none")]
     pub h: Option<u8>,
+    /// 分
     pub m: u8,
+    /// 秒
     pub s: u8,
 }
 
