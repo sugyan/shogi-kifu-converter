@@ -1,8 +1,9 @@
 //! Parsers for [`jkf::JsonKifuFormat`](crate::jkf::JsonKifuFormat)
 
+mod kif;
+
 use crate::error::{ConvertError, ParserError};
 use crate::jkf::JsonKifuFormat;
-use crate::kif;
 use encoding_rs::{SHIFT_JIS, UTF_8};
 use nom::error::convert_error;
 use nom::Finish;
@@ -118,8 +119,10 @@ mod tests {
             if path.extension() != Some(OsStr::new("csa")) {
                 continue;
             }
-            let jkf = parse_csa_file(&path).expect("failed to parse csa");
-
+            let jkf = match parse_csa_file(&path) {
+                Ok(jkf) => jkf,
+                Err(err) => panic!("failed to parse csa {}: {err}", path.display()),
+            };
             // Load exptected JSON
             assert!(path.set_extension("json"));
             let file = File::open(&path)?;
@@ -142,9 +145,13 @@ mod tests {
             if path.extension() != Some(OsStr::new("kif")) {
                 continue;
             }
-            let jkf = parse_kif_file(&path).expect("failed to parse kif");
+            let jkf = match parse_kif_file(&path) {
+                Ok(jkf) => jkf,
+                Err(err) => {
+                    panic!("failed to parse kif file {}: {err}", path.display());
+                }
+            };
             let val = serde_json::to_value(&jkf).expect("failed to serialize jkf");
-
             // Load exptected JSON Value
             assert!(path.set_extension("json"));
             let file = File::open(&path)?;

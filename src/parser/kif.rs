@@ -9,8 +9,6 @@ use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple
 use nom::IResult;
 use std::collections::HashMap;
 
-type Forks = Vec<(usize, Vec<MoveFormat>)>;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Information {
     Preset(Preset),
@@ -463,14 +461,10 @@ fn main_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>>
                 comments: Some(comments).filter(|v| !v.is_empty()),
                 ..Default::default()
             }),
-            moves_with_index,
+            opt(moves_with_index),
         ),
-        |(m0, (_, v))| [vec![m0], v].concat(),
+        |(m0, o)| [vec![m0], o.map_or(Vec::new(), |(_, v)| v)].concat(),
     )(input)
-}
-
-fn fork_moves(input: &str) -> IResult<&str, Forks, VerboseError<&str>> {
-    many0(preceded(many0(not_move_line), moves_with_index))(input)
 }
 
 fn entire_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
@@ -503,7 +497,10 @@ fn entire_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str
     }
 
     map(
-        pair(preceded(many0(not_move_line), main_moves), fork_moves),
+        pair(
+            preceded(opt(not_move_line), main_moves),
+            many0(preceded(many0(not_move_line), moves_with_index)),
+        ),
         merge_forks,
     )(input)
 }
