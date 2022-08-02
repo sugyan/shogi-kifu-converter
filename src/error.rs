@@ -27,6 +27,8 @@ pub enum ConvertError {
     /// An error that occurred while parsing a KIF string
     #[error("KIF Error: {0}")]
     KifError(String),
+    #[error("KI2 Error: {0}")]
+    Ki2Error(String),
 }
 
 /// An error that can occur while converting to [`shogi_core`](shogi_core)

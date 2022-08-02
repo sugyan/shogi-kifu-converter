@@ -1,5 +1,7 @@
 //! Parsers for [`jkf::JsonKifuFormat`](crate::jkf::JsonKifuFormat)
 
+mod kakinoki;
+mod ki2;
 mod kif;
 
 use crate::error::{ConvertError, ParserError};
@@ -75,6 +77,50 @@ pub fn parse_kif_str(s: &str) -> Result<JsonKifuFormat, ConvertError> {
             Ok(jkf)
         }
         Err(err) => Err(ConvertError::KifError(convert_error(s, err))),
+    }
+}
+
+/// Parses a KI2 file to [`jkf::JsonKifuFormat`](crate::jkf::JsonKifuFormat)
+///
+/// If the file extension is `.ki2`, it is decoded as Shift-JIS, and if it is `.ki2u`, it is decoded as UTF-8 and parsed.
+///
+/// See: [http://kakinoki.o.oo7.jp/KifuwInt.htm](http://kakinoki.o.oo7.jp/KifuwInt.htm)
+///
+/// # Errors
+///
+/// This function returns [`ConvertError`](crate::error::ConvertError) if it fails to parse the file.
+pub fn parse_ki2_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ConvertError> {
+    let mut file = File::open(&path)?;
+    let ext = path
+        .as_ref()
+        .extension()
+        .ok_or(ParserError::FileExtensionError)?;
+    let encoding = match ext.to_str() {
+        Some("ki2") => SHIFT_JIS,
+        Some("ki2u") => UTF_8,
+        _ => return Err(ConvertError::Parser(ParserError::FileExtensionError)),
+    };
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf)?;
+    let (cow, _, had_errors) = encoding.decode(&buf);
+    if had_errors {
+        return Err(ConvertError::Parser(ParserError::DecodeError));
+    }
+    parse_ki2_str(&cow)
+}
+
+/// Parses a KI2 formatted string to [`jkf::JsonKifuFormat`](crate::jkf::JsonKifuFormat)
+///
+/// # Errors
+///
+/// This function returns [`ConvertError`](crate::error::ConvertError) if it fails to parse the string.
+pub fn parse_ki2_str(s: &str) -> Result<JsonKifuFormat, ConvertError> {
+    match ki2::parse(s).finish() {
+        Ok((_, mut jkf)) => {
+            jkf.normalize()?;
+            Ok(jkf)
+        }
+        Err(err) => Err(ConvertError::Ki2Error(convert_error(s, err))),
     }
 }
 
