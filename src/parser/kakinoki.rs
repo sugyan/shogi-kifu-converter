@@ -58,6 +58,18 @@ fn comment_line(input: &str) -> IResult<&str, String, VerboseError<&str>> {
     )(input)
 }
 
+pub(super) fn move_comment_line(input: &str) -> IResult<&str, String, VerboseError<&str>> {
+    alt((
+        map(
+            delimited(tag("*"), not_line_ending, line_ending),
+            String::from,
+        ),
+        map(delimited(tag("&"), not_line_ending, line_ending), |s| {
+            String::from("&") + s
+        }),
+    ))(input)
+}
+
 pub(super) fn piece_kind(input: &str) -> IResult<&str, Kind, VerboseError<&str>> {
     alt((
         value(Kind::FU, tag("歩")),
@@ -268,6 +280,41 @@ fn board(input: &str) -> IResult<&str, [[Piece; 9]; 9], VerboseError<&str>> {
         }),
         terminated(tag("+---------------------------+"), line_ending),
     )(input)
+}
+
+fn place_x(input: &str) -> IResult<&str, u8, VerboseError<&str>> {
+    alt((
+        value(1, tag("１")),
+        value(2, tag("２")),
+        value(3, tag("３")),
+        value(4, tag("４")),
+        value(5, tag("５")),
+        value(6, tag("６")),
+        value(7, tag("７")),
+        value(8, tag("８")),
+        value(9, tag("９")),
+    ))(input)
+}
+
+fn place_y(input: &str) -> IResult<&str, u8, VerboseError<&str>> {
+    alt((
+        value(1, tag("一")),
+        value(2, tag("二")),
+        value(3, tag("三")),
+        value(4, tag("四")),
+        value(5, tag("五")),
+        value(6, tag("六")),
+        value(7, tag("七")),
+        value(8, tag("八")),
+        value(9, tag("九")),
+    ))(input)
+}
+
+pub(super) fn move_to(input: &str) -> IResult<&str, Option<PlaceFormat>, VerboseError<&str>> {
+    alt((
+        value(None, tag("同　")),
+        map(pair(place_x, place_y), |(x, y)| Some(PlaceFormat { x, y })),
+    ))(input)
 }
 
 pub(super) fn parse_without_moves(

@@ -1,4 +1,4 @@
-use super::kakinoki::{parse_without_moves, piece_kind};
+use super::kakinoki::{move_comment_line, move_to, parse_without_moves, piece_kind};
 use crate::jkf::*;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
@@ -9,48 +9,8 @@ use nom::multi::{many0, many1};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
 use nom::IResult;
 
-fn move_comment_line(input: &str) -> IResult<&str, String, VerboseError<&str>> {
-    alt((
-        map(
-            delimited(tag("*"), not_line_ending, line_ending),
-            String::from,
-        ),
-        map(delimited(tag("&"), not_line_ending, line_ending), |s| {
-            String::from("&") + s
-        }),
-    ))(input)
-}
-
 fn not_move_line(input: &str) -> IResult<&str, &str, VerboseError<&str>> {
     delimited(none_of(" 0123456789*"), not_line_ending, line_ending)(input)
-}
-
-fn place_x(input: &str) -> IResult<&str, u8, VerboseError<&str>> {
-    alt((
-        value(1, tag("１")),
-        value(2, tag("２")),
-        value(3, tag("３")),
-        value(4, tag("４")),
-        value(5, tag("５")),
-        value(6, tag("６")),
-        value(7, tag("７")),
-        value(8, tag("８")),
-        value(9, tag("９")),
-    ))(input)
-}
-
-fn place_y(input: &str) -> IResult<&str, u8, VerboseError<&str>> {
-    alt((
-        value(1, tag("一")),
-        value(2, tag("二")),
-        value(3, tag("三")),
-        value(4, tag("四")),
-        value(5, tag("五")),
-        value(6, tag("六")),
-        value(7, tag("七")),
-        value(8, tag("八")),
-        value(9, tag("九")),
-    ))(input)
 }
 
 fn move_from(input: &str) -> IResult<&str, Option<PlaceFormat>, VerboseError<&str>> {
@@ -65,13 +25,6 @@ fn move_from(input: &str) -> IResult<&str, Option<PlaceFormat>, VerboseError<&st
                 })
             },
         ),
-    ))(input)
-}
-
-fn move_to(input: &str) -> IResult<&str, Option<PlaceFormat>, VerboseError<&str>> {
-    alt((
-        value(None, tag("同　")),
-        map(pair(place_x, place_y), |(x, y)| Some(PlaceFormat { x, y })),
     ))(input)
 }
 
@@ -195,14 +148,17 @@ fn moves_with_index(input: &str) -> IResult<&str, (usize, Vec<MoveFormat>), Verb
 
 fn main_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
     map(
-        pair(
-            map(many0(move_comment_line), |comments| MoveFormat {
-                comments: Some(comments).filter(|v| !v.is_empty()),
-                ..Default::default()
-            }),
-            opt(moves_with_index),
-        ),
-        |(m0, o)| [vec![m0], o.map_or(Vec::new(), |(_, v)| v)].concat(),
+        pair(opt(many1(move_comment_line)), opt(moves_with_index)),
+        |(comments, o)| {
+            [
+                vec![MoveFormat {
+                    comments,
+                    ..Default::default()
+                }],
+                o.map_or(Vec::new(), |(_, v)| v),
+            ]
+            .concat()
+        },
     )(input)
 }
 

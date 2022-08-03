@@ -122,10 +122,14 @@ pub enum Relative {
     D,
     /// 左上
     LU,
+    /// 左寄
+    LM,
     /// 左引
     LD,
     /// 右上
     RU,
+    /// 右寄
+    RM,
     /// 右引
     RD,
     /// 打
