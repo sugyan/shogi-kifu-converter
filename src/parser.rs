@@ -208,4 +208,31 @@ mod tests {
         }
         Ok(())
     }
+
+    #[test]
+    fn ki2_to_jkf() -> Result<()> {
+        let dir = Path::new("data/tests/ki2");
+        for entry in dir.read_dir()? {
+            // Parse and convert KI2 to JKF, and serialize to Value
+            let mut path = entry?.path();
+            if path.extension() != Some(OsStr::new("ki2")) {
+                continue;
+            }
+            let jkf = match parse_ki2_file(&path) {
+                Ok(jkf) => jkf,
+                Err(err) => {
+                    panic!("failed to parse ki2 file {}: {err}", path.display());
+                }
+            };
+            let val = serde_json::to_value(&jkf).expect("failed to serialize jkf");
+            // Load exptected JSON Value
+            assert!(path.set_extension("json"));
+            let file = File::open(&path)?;
+            let expected = serde_json::from_reader::<_, Value>(BufReader::new(file))
+                .expect("failed to parse json");
+
+            assert_eq!(expected, val, "different from expected: {}", path.display());
+        }
+        Ok(())
+    }
 }

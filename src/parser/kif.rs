@@ -1,21 +1,18 @@
-use super::kakinoki::{move_comment_line, move_to, parse_without_moves, piece_kind};
+use super::kakinoki::{move_comment_line, move_to, not_move_line, parse_without_moves, piece_kind};
 use crate::jkf::*;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
-use nom::character::complete::{digit1, line_ending, none_of, not_line_ending, space0};
+use nom::character::complete::{digit1, line_ending, not_line_ending, space0};
 use nom::combinator::{map, map_res, opt, value};
 use nom::error::VerboseError;
 use nom::multi::{many0, many1};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
 use nom::IResult;
 
-fn not_move_line(input: &str) -> IResult<&str, &str, VerboseError<&str>> {
-    delimited(none_of(" 0123456789*"), not_line_ending, line_ending)(input)
-}
-
 fn move_from(input: &str) -> IResult<&str, Option<PlaceFormat>, VerboseError<&str>> {
     alt((
-        value(None, tag("打")),
+        // To disambiguate `Normal` move or `Drop` move, "打" will be parsed as `Some(PlaceFormat { x: 0, y: 0 })`
+        value(Some(PlaceFormat { x: 0, y: 0 }), tag("打")),
         map(
             delimited(tag("("), map_res(digit1, str::parse), tag(")")),
             |d: u8| {
@@ -213,14 +210,6 @@ pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifuFormat, VerboseError<&
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parse_not_move_line() {
-        assert!(not_move_line("").is_err());
-        assert!(not_move_line("* comment line\n").is_err());
-        assert!(not_move_line("手数----指手---------消費時間--\n").is_ok());
-        assert!(not_move_line("1 ７六歩(77) ( 0:16/00:00:16)").is_err());
-    }
 
     #[test]
     fn parse_move_time_format() {

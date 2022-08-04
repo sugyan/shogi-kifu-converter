@@ -1,6 +1,7 @@
 use crate::error::{CoreConvertError, NormalizerError};
 use crate::jkf::*;
-use shogi_core::{PartialPosition, PieceKind};
+use shogi_core::{LegalityChecker, PartialPosition, PieceKind};
+use shogi_legality_lite::LiteLegalityChecker;
 use shogi_official_kifu::display_single_move_kansuji;
 
 pub(crate) const HIRATE_BOARD: [[Piece; 9]; 9] = {
@@ -319,6 +320,147 @@ fn normalize_initial(jkf: &mut JsonKifuFormat) -> Result<(), NormalizerError> {
     Ok(())
 }
 
+// Check if the `from` is retrievable from the position
+fn calculate_from(
+    mmf: &MoveMoveFormat,
+    pos: &PartialPosition,
+    to: shogi_core::Square,
+) -> Result<Option<PlaceFormat>, NormalizerError> {
+    let color = pos.side_to_move();
+    let bb = LiteLegalityChecker.normal_to_candidates(
+        pos,
+        to,
+        shogi_core::Piece::new(PieceKind::from(mmf.piece), color),
+    );
+    let mut froms = bb.into_iter().collect::<Vec<_>>();
+    match bb.count() {
+        0 => Ok(None),
+        1 => Ok(bb.into_iter().next().map(|sq| PlaceFormat {
+            x: sq.file() as u8,
+            y: sq.rank() as u8,
+        })),
+        2.. => {
+            let relative = mmf
+                .relative
+                .ok_or_else(|| NormalizerError::AmbiguousMoveFrom(froms.clone()))?;
+            let (to_rel_file, to_rel_rank) = (to.relative_file(color), to.relative_rank(color));
+            match relative {
+                Relative::L => froms.retain(|sq| sq.relative_file(color) > to_rel_file),
+                Relative::C => froms.retain(|sq| sq.file() == to.file()),
+                Relative::R => froms.retain(|sq| sq.relative_file(color) < to_rel_file),
+                Relative::U => froms.retain(|sq| sq.relative_rank(color) > to_rel_rank),
+                Relative::M => froms.retain(|sq| sq.rank() == to.rank()),
+                Relative::D => froms.retain(|sq| sq.relative_rank(color) < to_rel_rank),
+                Relative::LU => froms.retain(|sq| {
+                    sq.relative_file(color) > to_rel_file && sq.relative_rank(color) > to_rel_rank
+                }),
+                Relative::LM => froms
+                    .retain(|sq| sq.relative_file(color) > to_rel_file && sq.rank() == to.rank()),
+                Relative::LD => froms.retain(|sq| {
+                    sq.relative_file(color) > to_rel_file && sq.relative_rank(color) < to_rel_rank
+                }),
+                Relative::RU => froms.retain(|sq| {
+                    sq.relative_file(color) < to_rel_file && sq.relative_rank(color) > to_rel_rank
+                }),
+                Relative::RM => froms
+                    .retain(|sq| sq.relative_file(color) < to_rel_file && sq.rank() == to.rank()),
+                Relative::RD => froms.retain(|sq| {
+                    sq.relative_file(color) < to_rel_file && sq.relative_rank(color) < to_rel_rank
+                }),
+                _ => {}
+            };
+            if froms.len() == 1 {
+                Ok(Some(PlaceFormat {
+                    x: froms[0].file() as u8,
+                    y: froms[0].rank() as u8,
+                }))
+            } else {
+                Err(NormalizerError::AmbiguousMoveFrom(froms))
+            }
+        }
+    }
+}
+
+fn normalize_move(mmf: &mut MoveMoveFormat, pos: &PartialPosition) -> Result<(), NormalizerError> {
+    mmf.color = match pos.side_to_move() {
+        shogi_core::Color::Black => Color::Black,
+        shogi_core::Color::White => Color::White,
+    };
+    if mmf.same.is_some() {
+        mmf.to = pos
+            .last_move()
+            .map(|mv| PlaceFormat {
+                x: mv.to().file() as u8,
+                y: mv.to().rank() as u8,
+            })
+            .ok_or(NormalizerError::NoLastMove)?;
+    }
+    let to = shogi_core::Square::try_from(&mmf.to)?;
+    if mmf.from.is_none() {
+        mmf.from = calculate_from(mmf, pos, to)?;
+    }
+    if let Some(pf) = &mmf.from {
+        if let Ok(from) = pf.try_into() {
+            // Retrieve piece
+            let piece = pos
+                .piece_at(from)
+                .ok_or(NormalizerError::MoveInconsistent("no piece to move found"))?;
+            let from_piece_kind = piece.piece_kind();
+            let to_piece_kind = if mmf.promote.unwrap_or_default() {
+                let pk = PieceKind::from(mmf.piece);
+                pk.promote().unwrap_or(pk)
+            } else {
+                mmf.piece.into()
+            };
+            mmf.piece = pk2k(from_piece_kind);
+            // Set same?
+            if pos
+                .last_move()
+                .map(|last| to == last.to())
+                .unwrap_or_default()
+            {
+                mmf.same = Some(true);
+            }
+            // Set promote?
+            if from_piece_kind.promote().is_some()
+                && (from.relative_rank(pos.side_to_move()) <= 3
+                    || to.relative_rank(pos.side_to_move()) <= 3)
+            {
+                mmf.promote = Some(from_piece_kind != to_piece_kind)
+            }
+            // Set capture?
+            if let Some(p) = pos.piece_at(to) {
+                mmf.capture = Some(pk2k(p.piece_kind()));
+            }
+        } else {
+            mmf.from = None;
+        }
+    }
+    let mv = (&*mmf).try_into()?;
+    // Set relative?
+    if mmf.relative.is_none() {
+        if let Some(mut display) = display_single_move_kansuji(pos, mv) {
+            mmf.relative = match (display.pop(), display.pop()) {
+                (Some('左'), _) => Some(Relative::L),
+                (Some('直'), _) => Some(Relative::C),
+                (Some('右'), _) => Some(Relative::R),
+                (Some('上'), Some('左')) => Some(Relative::LU),
+                (Some('上'), Some('右')) => Some(Relative::RU),
+                (Some('上'), _) => Some(Relative::U),
+                (Some('引'), Some('左')) => Some(Relative::LD),
+                (Some('引'), Some('右')) => Some(Relative::RD),
+                (Some('引'), _) => Some(Relative::D),
+                (Some('寄'), Some('左')) => Some(Relative::LM),
+                (Some('寄'), Some('右')) => Some(Relative::RM),
+                (Some('寄'), _) => Some(Relative::M),
+                (Some('打'), _) => Some(Relative::H),
+                _ => None,
+            };
+        }
+    }
+    Ok(())
+}
+
 fn normalize_moves(
     moves: &mut [MoveFormat],
     mut pos: PartialPosition,
@@ -338,72 +480,8 @@ fn normalize_moves(
             time.total = totals[pos.side_to_move().array_index()];
         }
         if let Some(mmf) = &mut mf.move_ {
-            mmf.color = match pos.side_to_move() {
-                shogi_core::Color::Black => Color::Black,
-                shogi_core::Color::White => Color::White,
-            };
-            if mmf.same.is_some() {
-                mmf.to = pos
-                    .last_move()
-                    .map(|mv| PlaceFormat {
-                        x: mv.to().file() as u8,
-                        y: mv.to().rank() as u8,
-                    })
-                    .ok_or(NormalizerError::NoLastMove)?;
-            }
-            let to = shogi_core::Square::try_from(&mmf.to)?;
-            if let Some(from) = &mmf.from {
-                let from = from.try_into()?;
-                // Retrieve piece
-                let piece = pos
-                    .piece_at(from)
-                    .ok_or(NormalizerError::MoveInconsistent("no piece to move found"))?;
-                let from_piece_kind = piece.piece_kind();
-                let to_piece_kind = if mmf.promote.is_some() {
-                    let pk = PieceKind::from(mmf.piece);
-                    pk.promote().unwrap_or(pk)
-                } else {
-                    mmf.piece.into()
-                };
-                mmf.piece = pk2k(from_piece_kind);
-                // Set same?
-                if pos
-                    .last_move()
-                    .map(|last| to == last.to())
-                    .unwrap_or_default()
-                {
-                    mmf.same = Some(true);
-                }
-                // Set promote?
-                if from_piece_kind.promote().is_some()
-                    && (from.relative_rank(pos.side_to_move()) <= 3
-                        || to.relative_rank(pos.side_to_move()) <= 3)
-                {
-                    mmf.promote = Some(from_piece_kind != to_piece_kind)
-                }
-                // Set capture?
-                if let Some(p) = pos.piece_at(to) {
-                    mmf.capture = Some(pk2k(p.piece_kind()));
-                }
-            }
+            normalize_move(mmf, &pos)?;
             let mv = (&*mmf).try_into()?;
-            // Set relative?
-            if let Some(mut display) = display_single_move_kansuji(&pos, mv) {
-                mmf.relative = match (display.pop(), display.pop()) {
-                    (Some('左'), _) => Some(Relative::L),
-                    (Some('直'), _) => Some(Relative::C),
-                    (Some('右'), _) => Some(Relative::R),
-                    (Some('上'), Some('左')) => Some(Relative::LU),
-                    (Some('上'), Some('右')) => Some(Relative::RU),
-                    (Some('上'), _) => Some(Relative::U),
-                    (Some('引'), Some('左')) => Some(Relative::LD),
-                    (Some('引'), Some('右')) => Some(Relative::RD),
-                    (Some('引'), _) => Some(Relative::D),
-                    (Some('寄'), _) => Some(Relative::M),
-                    (Some('打'), _) => Some(Relative::H),
-                    _ => None,
-                };
-            }
             pos.make_move(mv).ok_or(NormalizerError::CoreConvert(
                 CoreConvertError::InvalidMove(mv),
             ))?;

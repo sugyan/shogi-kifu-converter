@@ -37,10 +37,16 @@ fn single_move(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
             ),
         )),
         |(c, to, kind, promote, relative, comments)| {
+            // To disambiguate `Normal` move or `Drop` move, "打" will be parsed as `Some(PlaceFormat { x: 0, y: 0 })`
+            let from = if relative == Some(Relative::H) {
+                Some(PlaceFormat { x: 0, y: 0 })
+            } else {
+                None
+            };
             MoveFormat {
                 move_: Some(MoveMoveFormat {
                     color: c,
-                    from: None,
+                    from,
                     to: to.unwrap_or_default(), // Might be (0, 0) if it's the same place as previous
                     piece: kind,
                     same: if to.is_none() { Some(true) } else { None },
@@ -57,7 +63,10 @@ fn single_move(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
 
 fn moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
     map(
-        pair(opt(many1(move_comment_line)), many0(single_move)),
+        pair(
+            preceded(many0(line_ending), opt(many1(move_comment_line))),
+            many0(single_move),
+        ),
         |(comments, v)| {
             [
                 vec![MoveFormat {
@@ -204,7 +213,7 @@ mod tests {
                 MoveFormat {
                     move_: Some(MoveMoveFormat {
                         color: Color::Black,
-                        from: None,
+                        from: Some(PlaceFormat { x: 0, y: 0 }),
                         to: PlaceFormat { x: 8, y: 2 },
                         piece: Kind::KI,
                         same: None,

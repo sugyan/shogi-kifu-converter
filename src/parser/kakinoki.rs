@@ -1,7 +1,7 @@
 use crate::jkf::*;
 use nom::branch::alt;
 use nom::bytes::complete::{is_not, tag};
-use nom::character::complete::{line_ending, not_line_ending, one_of};
+use nom::character::complete::{line_ending, none_of, not_line_ending, one_of};
 use nom::combinator::{map, map_res, opt, value};
 use nom::error::VerboseError;
 use nom::multi::{count, many0, many1};
@@ -56,6 +56,10 @@ fn comment_line(input: &str) -> IResult<&str, String, VerboseError<&str>> {
         delimited(tag("#"), not_line_ending, line_ending),
         String::from,
     )(input)
+}
+
+pub(super) fn not_move_line(input: &str) -> IResult<&str, &str, VerboseError<&str>> {
+    delimited(none_of(" 0123456789*▲△"), not_line_ending, line_ending)(input)
 }
 
 pub(super) fn move_comment_line(input: &str) -> IResult<&str, String, VerboseError<&str>> {
@@ -312,7 +316,7 @@ fn place_y(input: &str) -> IResult<&str, u8, VerboseError<&str>> {
 
 pub(super) fn move_to(input: &str) -> IResult<&str, Option<PlaceFormat>, VerboseError<&str>> {
     alt((
-        value(None, tag("同　")),
+        value(None, terminated(tag("同"), opt(tag("　")))),
         map(pair(place_x, place_y), |(x, y)| Some(PlaceFormat { x, y })),
     ))(input)
 }
@@ -362,6 +366,14 @@ mod tests {
             Ok(("", String::from(" comment"))),
             comment_line("# comment\n")
         );
+    }
+
+    #[test]
+    fn parse_not_move_line() {
+        assert!(not_move_line("").is_err());
+        assert!(not_move_line("* comment line\n").is_err());
+        assert!(not_move_line("手数----指手---------消費時間--\n").is_ok());
+        assert!(not_move_line("1 ７六歩(77) ( 0:16/00:00:16)").is_err());
     }
 
     #[test]
