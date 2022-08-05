@@ -3,9 +3,12 @@
 //! Also provides implementation [`shogi_core::ToUsi`] for [`jkf::JsonKifuFormat`](crate::jkf::JsonKifuFormat)
 
 mod csa;
+mod kakinoki;
+mod ki2;
 mod kif;
 
 pub use self::csa::ToCsa;
+pub use self::ki2::ToKi2;
 pub use self::kif::ToKif;
 use crate::jkf::JsonKifuFormat;
 use shogi_core::{PartialPosition, Position, ToUsi};

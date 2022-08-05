@@ -27,6 +27,7 @@ pub enum ConvertError {
     /// An error that occurred while parsing a KIF string
     #[error("KIF Error: {0}")]
     KifError(String),
+    /// An error that occurred while parsing a KI2 string
     #[error("KI2 Error: {0}")]
     Ki2Error(String),
 }
