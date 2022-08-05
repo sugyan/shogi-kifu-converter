@@ -16,7 +16,7 @@ graph LR;
     JSON[JSON] -->|parse| JKF
     JKF -->|write| CSAout[CSA formatted kifu]
     JKF -->|write| KIFout[KIF formatted kifu]
-    JKF -->|write| KI2out[KIF formatted kifu]
+    JKF -->|write| KI2out[KI2 formatted kifu]
     JKF -->|write| USIout[USI position data]
     JKF -.->|std::convert| Core(shogi_core::Position)
 ```
