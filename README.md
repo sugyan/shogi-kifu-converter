@@ -12,9 +12,11 @@ graph LR;
     JKF((json-kifu-format))
     CSAin[CSA formatted kifu] -->|parse| JKF;
     KIFin[KIF formatted kifu] -->|parse| JKF;
+    KI2in[KI2 formatted kifu] -->|parse| JKF;
     JSON[JSON] -->|parse| JKF
     JKF -->|write| CSAout[CSA formatted kifu]
     JKF -->|write| KIFout[KIF formatted kifu]
+    JKF -->|write| KI2out[KI2 formatted kifu]
     JKF -->|write| USIout[USI position data]
     JKF -.->|std::convert| Core(shogi_core::Position)
 ```
@@ -27,8 +29,9 @@ See [github.com/na2hiro/json-kifu-format](https://github.com/na2hiro/json-kifu-f
 
 ### Parsers
 
-- CSA format
-- KIF format
+- [CSA format](http://www2.computer-shogi.org/protocol/record_v22.html)
+- [KIF format](http://kakinoki.o.oo7.jp/kif_format.html)
+- [KI2 format](http://kakinoki.o.oo7.jp/KifuwInt.htm)
 
 ### Converters
 

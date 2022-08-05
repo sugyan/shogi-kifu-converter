@@ -145,8 +145,8 @@ impl TryFrom<csa::MoveRecord> for MoveFormat {
                 move_: Some(MoveMoveFormat {
                     color: c.into(),
                     piece: pt.try_into()?,
-                    from: from.try_into().ok(),
-                    to: to.try_into()?,
+                    from: Some(from.into()),
+                    to: to.into(),
                     same: None,
                     promote: None,
                     capture: None,
@@ -260,17 +260,11 @@ impl From<Duration> for TimeFormat {
     }
 }
 
-impl TryFrom<csa::Square> for PlaceFormat {
-    type Error = CsaConvertError;
-
-    fn try_from(sq: csa::Square) -> Result<Self, Self::Error> {
-        if sq.file == 0 && sq.rank == 0 {
-            Err(CsaConvertError::SquareZero)
-        } else {
-            Ok(PlaceFormat {
-                x: sq.file,
-                y: sq.rank,
-            })
+impl From<csa::Square> for PlaceFormat {
+    fn from(sq: csa::Square) -> Self {
+        PlaceFormat {
+            x: sq.file,
+            y: sq.rank,
         }
     }
 }

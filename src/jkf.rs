@@ -122,10 +122,14 @@ pub enum Relative {
     D,
     /// 左上
     LU,
+    /// 左寄
+    LM,
     /// 左引
     LD,
     /// 右上
     RU,
+    /// 右寄
+    RM,
     /// 右引
     RD,
     /// 打
@@ -332,7 +336,7 @@ pub struct TimeFormat {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::{parse_csa_file, parse_kif_file};
+    use crate::parser::{parse_csa_file, parse_ki2_file, parse_kif_file};
     use jsonschema::JSONSchema;
     use std::ffi::OsStr;
     use std::fs::{DirEntry, File};
@@ -401,8 +405,15 @@ mod tests {
         visit_dirs(Path::new("data/tests"), &|entry: &DirEntry| -> Result<()> {
             let path = entry.path();
             let jkf = match path.extension().and_then(|s| s.to_str()) {
-                Some("csa") => parse_csa_file(&path).expect("failed to parse csa file"),
-                Some("kif") => parse_kif_file(&path).expect("failed to parse kif file"),
+                Some("csa") => parse_csa_file(&path).unwrap_or_else(|err| {
+                    panic!("failed to parse csa file {}: {err:?}", path.display())
+                }),
+                Some("kif") => parse_kif_file(&path).unwrap_or_else(|err| {
+                    panic!("failed to parse kif file {}: {err:?}", path.display())
+                }),
+                Some("ki2") => parse_ki2_file(&path).unwrap_or_else(|err| {
+                    panic!("failed to parse ki2 file {}: {err:?}", path.display())
+                }),
                 _ => return Ok(()),
             };
             let value = serde_json::to_value(&jkf).expect("failed to serialize");

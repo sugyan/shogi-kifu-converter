@@ -27,6 +27,9 @@ pub enum ConvertError {
     /// An error that occurred while parsing a KIF string
     #[error("KIF Error: {0}")]
     KifError(String),
+    /// An error that occurred while parsing a KI2 string
+    #[error("KI2 Error: {0}")]
+    Ki2Error(String),
 }
 
 /// An error that can occur while converting to [`shogi_core`](shogi_core)
@@ -49,9 +52,6 @@ pub enum CoreConvertError {
 /// An error that can occur while converting from [`csa`]
 #[derive(Error, Debug)]
 pub enum CsaConvertError {
-    /// The [`csa::Square`] is invalid (`file == 0 && rank == 0`)
-    #[error("Zero Square")]
-    SquareZero,
     /// [`csa::PieceType::All`] cannot be converted to [`jkf::Kind`](crate::jkf::Kind)
     #[error("AL PieceType")]
     PieceTypeAll,
@@ -69,6 +69,9 @@ pub enum NormalizerError {
     /// The [`jkf::MoveMoveFormat`](crate::jkf::MoveMoveFormat) data is invalid for current [`shogi_core::PartialPosition`]
     #[error("Invalid move: {0}")]
     MoveInconsistent(&'static str),
+    /// Couldn't disambiguous the [`jkf::MoveMoveFormat.from`](crate::jkf::MoveMoveFormat::from)
+    #[error("Move `from` is ambiguous: {0:?}")]
+    AmbiguousMoveFrom(Vec<shogi_core::Square>),
 }
 
 /// An error that can occur while parsing files
