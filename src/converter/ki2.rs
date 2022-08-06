@@ -35,7 +35,7 @@ fn write_move_kind<W: Write>(kind: Kind, sink: &mut W) -> Result {
         Kind::NK => sink.write_str("成桂"),
         Kind::NG => sink.write_str("成銀"),
         Kind::UM => sink.write_str("馬"),
-        Kind::RY => sink.write_str("龍"),
+        Kind::RY => sink.write_str("竜"),
     }
 }
 
