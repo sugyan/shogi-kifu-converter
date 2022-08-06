@@ -1,4 +1,5 @@
-use crate::{error::NormalizerError, jkf};
+use crate::error::{CoreConvertError, NormalizerError};
+use crate::jkf;
 use shogi_core::{Color, Hand, Move, PartialPosition, Piece, PieceKind, Position, Square};
 use std::collections::HashMap;
 
@@ -92,21 +93,28 @@ impl TryFrom<&Position> for jkf::JsonKifuFormat {
 
     fn try_from(pos: &Position) -> Result<Self, Self::Error> {
         let mut moves = vec![jkf::MoveFormat::default()];
+        let mut pp = pos.initial_position().clone();
         for &mv in pos.moves() {
             let mmf = match mv {
-                Move::Normal { from, to, promote } => jkf::MoveMoveFormat {
-                    color: jkf::Color::Black, // dummy
-                    from: Some((&from).into()),
-                    to: (&to).into(),
-                    piece: jkf::Kind::FU, // dummy
-                    same: None,
-                    promote: Some(promote),
-                    capture: None,
-                    relative: None,
-                },
+                Move::Normal { from, to, promote } => {
+                    let piece = pp
+                        .piece_at(from)
+                        .ok_or(NormalizerError::MoveInconsistent("no piece to move found"))?;
+                    jkf::MoveMoveFormat {
+                        color: pp.side_to_move().into(),
+                        from: Some((&from).into()),
+                        to: (&to).into(),
+                        piece: piece.piece_kind().into(),
+                        same: None,
+                        promote: Some(promote),
+                        capture: None,
+                        relative: None,
+                    }
+                }
+                // To disambiguate `Normal` move or `Drop` move, `from` is converted to `Some(PlaceFormat { x: 0, y: 0 })`
                 Move::Drop { piece, to } => jkf::MoveMoveFormat {
-                    color: jkf::Color::Black, // dummy
-                    from: None,
+                    color: pp.side_to_move().into(),
+                    from: Some(jkf::PlaceFormat { x: 0, y: 0 }),
                     to: (&to).into(),
                     piece: piece.piece_kind().into(),
                     same: None,
@@ -119,6 +127,10 @@ impl TryFrom<&Position> for jkf::JsonKifuFormat {
                 move_: Some(mmf),
                 ..Default::default()
             });
+            pp.make_move(mv)
+                .ok_or(NormalizerError::CoreConvert(CoreConvertError::InvalidMove(
+                    mv,
+                )))?;
         }
         let mut ret = jkf::JsonKifuFormat {
             header: HashMap::new(),

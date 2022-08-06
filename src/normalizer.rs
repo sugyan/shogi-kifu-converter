@@ -406,11 +406,13 @@ fn normalize_move(mmf: &mut MoveMoveFormat, pos: &PartialPosition) -> Result<(),
                 .piece_at(from)
                 .ok_or(NormalizerError::MoveInconsistent("no piece to move found"))?;
             let from_piece_kind = piece.piece_kind();
-            let to_piece_kind = if mmf.promote.unwrap_or_default() {
+            let to_piece_kind = {
                 let pk = PieceKind::from(mmf.piece);
-                pk.promote().unwrap_or(pk)
-            } else {
-                mmf.piece.into()
+                if mmf.promote.unwrap_or_default() {
+                    pk.promote().unwrap_or(pk)
+                } else {
+                    pk
+                }
             };
             mmf.piece = pk2k(from_piece_kind);
             // Set same?

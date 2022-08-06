@@ -64,7 +64,7 @@ pub enum NormalizerError {
     #[error("Convert Error: {0}")]
     CoreConvert(#[from] CoreConvertError),
     /// [`shogi_core::PartialPosition::last_move()`] is required if [`jkf::MoveMoveFormat::same`](crate::jkf::MoveMoveFormat::same) is some
-    #[error("Invalid move")]
+    #[error("No previous move")]
     NoLastMove,
     /// The [`jkf::MoveMoveFormat`](crate::jkf::MoveMoveFormat) data is invalid for current [`shogi_core::PartialPosition`]
     #[error("Invalid move: {0}")]
