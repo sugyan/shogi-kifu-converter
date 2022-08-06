@@ -26,4 +26,5 @@ See [github.com/na2hiro/json-kifu-format](https://github.com/na2hiro/json-kifu-f
 - [`ToUsi`](https://docs.rs/shogi-kifu-converter/latest/shogi_kifu_converter/jkf/struct.JsonKifuFormat.html#impl-ToUsi-for-JsonKifuFormat)
 - [`ToCsi`](https://docs.rs/shogi-kifu-converter/latest/shogi_kifu_converter/jkf/struct.JsonKifuFormat.html#impl-ToCsa-for-JsonKifuFormat)
 - [`ToKif`](https://docs.rs/shogi-kifu-converter/latest/shogi_kifu_converter/jkf/struct.JsonKifuFormat.html#impl-ToKif-for-JsonKifuFormat)
+- [`ToKi2`](https://docs.rs/shogi-kifu-converter/latest/shogi_kifu_converter/jkf/struct.JsonKifuFormat.html#impl-ToKi2-for-JsonKifuFormat)
 - [`TryFrom<&jkf::JsonKifuFormat> for shogi_core::Position`](https://docs.rs/shogi-kifu-converter/latest/shogi_kifu_converter/jkf/struct.JsonKifuFormat.html#impl-TryFrom%3C%26JsonKifuFormat%3E-for-Position)
