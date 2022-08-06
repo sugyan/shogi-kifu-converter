@@ -17,8 +17,9 @@ See [github.com/na2hiro/json-kifu-format](https://github.com/na2hiro/json-kifu-f
 
 ### Parsers
 
-- CSA format
-- KIF format
+- [CSA format](http://www2.computer-shogi.org/protocol/record_v22.html)
+- [KIF format](http://kakinoki.o.oo7.jp/kif_format.html)
+- [KI2 format](http://kakinoki.o.oo7.jp/KifuwInt.htm)
 
 ### Converters
 
