@@ -190,7 +190,6 @@ mod tests {
         let path = Path::new("data/tests/kif/forks.json");
         let jkf = parse_jkf_file(&path).expect("failed to parse kif");
         let kif = jkf.to_kif_owned();
-        println!("{kif}");
         assert_eq!(
             &r#"
 手数----指手---------消費時間--

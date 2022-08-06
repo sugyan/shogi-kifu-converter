@@ -414,24 +414,26 @@ fn normalize_move(mmf: &mut MoveMoveFormat, pos: &PartialPosition) -> Result<(),
             };
             mmf.piece = pk2k(from_piece_kind);
             // Set same?
-            if pos
+            mmf.same = if pos
                 .last_move()
                 .map(|last| to == last.to())
                 .unwrap_or_default()
             {
-                mmf.same = Some(true);
-            }
+                Some(true)
+            } else {
+                None
+            };
             // Set promote?
-            if from_piece_kind.promote().is_some()
+            mmf.promote = if from_piece_kind.promote().is_some()
                 && (from.relative_rank(pos.side_to_move()) <= 3
                     || to.relative_rank(pos.side_to_move()) <= 3)
             {
-                mmf.promote = Some(from_piece_kind != to_piece_kind)
-            }
+                Some(from_piece_kind != to_piece_kind)
+            } else {
+                None
+            };
             // Set capture?
-            if let Some(p) = pos.piece_at(to) {
-                mmf.capture = Some(pk2k(p.piece_kind()));
-            }
+            mmf.capture = pos.piece_at(to).map(|p| pk2k(p.piece_kind()));
         } else {
             mmf.from = None;
         }
