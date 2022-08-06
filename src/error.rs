@@ -33,7 +33,7 @@ pub enum ConvertError {
 }
 
 /// An error that can occur while converting to [`shogi_core`](shogi_core)
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum CoreConvertError {
     /// Board data is required if preset is [`PresetOther`](crate::jkf::Preset::PresetOther)
     #[error("Invalid initial board: no data with preset `OTHER`")]
@@ -50,7 +50,7 @@ pub enum CoreConvertError {
 }
 
 /// An error that can occur while converting from [`csa`]
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum CsaConvertError {
     /// [`csa::PieceType::All`] cannot be converted to [`jkf::Kind`](crate::jkf::Kind)
     #[error("AL PieceType")]
@@ -58,13 +58,13 @@ pub enum CsaConvertError {
 }
 
 /// An error that can occur while normalizing [`JsonKifuFormat`](crate::jkf::JsonKifuFormat)
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum NormalizerError {
     /// From [`CoreConvertError`]
     #[error("Convert Error: {0}")]
     CoreConvert(#[from] CoreConvertError),
     /// [`shogi_core::PartialPosition::last_move()`] is required if [`jkf::MoveMoveFormat::same`](crate::jkf::MoveMoveFormat::same) is some
-    #[error("Invalid move")]
+    #[error("No previous move")]
     NoLastMove,
     /// The [`jkf::MoveMoveFormat`](crate::jkf::MoveMoveFormat) data is invalid for current [`shogi_core::PartialPosition`]
     #[error("Invalid move: {0}")]
@@ -75,7 +75,7 @@ pub enum NormalizerError {
 }
 
 /// An error that can occur while parsing files
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum ParserError {
     /// The decoding of the string had failed
     #[error("Decode Error")]

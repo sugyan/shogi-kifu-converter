@@ -7,7 +7,7 @@
 
 A Rust library that defines structs compatible with [json-kifu-format](https://github.com/na2hiro/json-kifu-format), containing parsers and converters for Shogi kifu (game record) for converting to and from json-kifu-format. And, it also provides conversion from `JsonKifuFormat` type to [`shogi_core`](https://crates.io/crates/shogi_core)'s `Position` type.
 
-![mermaid-diagram-2022-07-31-125435](https://user-images.githubusercontent.com/80381/182141863-62c048d0-460b-4dea-ba46-6935305bc71a.png)
+![mermaid-diagram-2022-08-06-150830](https://user-images.githubusercontent.com/80381/183236718-75befbc0-6164-41a8-a652-a8acc36c5871.png)
 
 ## About json-kifu-format (JKF)
 

@@ -144,9 +144,9 @@ impl TryFrom<csa::MoveRecord> for MoveFormat {
             csa::Action::Move(c, from, to, pt) => Ok(MoveFormat {
                 move_: Some(MoveMoveFormat {
                     color: c.into(),
-                    piece: pt.try_into()?,
                     from: Some(from.into()),
                     to: to.into(),
+                    piece: pt.try_into()?,
                     same: None,
                     promote: None,
                     capture: None,
