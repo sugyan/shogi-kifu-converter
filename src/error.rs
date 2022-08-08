@@ -7,22 +7,22 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum ConvertError {
     /// From [`std::io::Error`]
-    #[error("IO Error: {0}")]
+    #[error(transparent)]
     Io(#[from] io::Error),
     /// From [`csa::CsaError`]
-    #[error("CSA Error: {0}")]
+    #[error(transparent)]
     Csa(#[from] csa::CsaError),
     /// From [`CsaConvertError`]
-    #[error("CSA converter Error: {0}")]
+    #[error(transparent)]
     CsaConvert(#[from] CsaConvertError),
     /// From [`NormalizerError`]
-    #[error("Normalization Error: {0}")]
+    #[error(transparent)]
     Normalizer(#[from] NormalizerError),
     /// From [`ParserError`]
-    #[error("Parser Error: {0}")]
+    #[error(transparent)]
     Parser(#[from] ParserError),
     /// From [`serde_json::Error`]
-    #[error("JSON Error: {0}")]
+    #[error(transparent)]
     SerdeError(#[from] serde_json::Error),
     /// An error that occurred while parsing a KIF string
     #[error("KIF Error: {0}")]
@@ -61,7 +61,7 @@ pub enum CsaConvertError {
 #[derive(Error, Debug, PartialEq)]
 pub enum NormalizerError {
     /// From [`CoreConvertError`]
-    #[error("Convert Error: {0}")]
+    #[error(transparent)]
     CoreConvert(#[from] CoreConvertError),
     /// [`shogi_core::PartialPosition::last_move()`] is required if [`jkf::MoveMoveFormat::same`](crate::jkf::MoveMoveFormat::same) is some
     #[error("No previous move")]
