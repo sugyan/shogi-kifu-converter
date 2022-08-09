@@ -1,4 +1,4 @@
-use crate::error::CsaConvertError;
+use crate::error::ParseError;
 use crate::jkf::*;
 use crate::normalizer::HIRATE_BOARD;
 use csa::{GameRecord, Position};
@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 impl TryFrom<GameRecord> for JsonKifuFormat {
-    type Error = CsaConvertError;
+    type Error = ParseError;
 
     fn try_from(record: GameRecord) -> Result<Self, Self::Error> {
         // Header
@@ -133,7 +133,7 @@ impl From<Position> for Initial {
 }
 
 impl TryFrom<csa::MoveRecord> for MoveFormat {
-    type Error = CsaConvertError;
+    type Error = ParseError;
 
     fn try_from(m: csa::MoveRecord) -> Result<Self, Self::Error> {
         let time = m.time.map(|d| Time {
@@ -270,7 +270,7 @@ impl From<csa::Square> for PlaceFormat {
 }
 
 impl TryFrom<csa::PieceType> for Kind {
-    type Error = CsaConvertError;
+    type Error = ParseError;
 
     fn try_from(pt: csa::PieceType) -> Result<Self, Self::Error> {
         match pt {
@@ -288,7 +288,9 @@ impl TryFrom<csa::PieceType> for Kind {
             csa::PieceType::ProSilver => Ok(Kind::NG),
             csa::PieceType::Horse => Ok(Kind::UM),
             csa::PieceType::Dragon => Ok(Kind::RY),
-            csa::PieceType::All => Err(CsaConvertError::PieceTypeAll),
+            csa::PieceType::All => {
+                Err(ParseError::CsaConvert("`AL` cannot be converted to `Kind`"))
+            }
         }
     }
 }

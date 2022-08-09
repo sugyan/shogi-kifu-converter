@@ -1,4 +1,4 @@
-use crate::error::{CoreConvertError, NormalizerError};
+use crate::error::{ConvertError, NormalizeError};
 use crate::jkf;
 use shogi_core::{Color, Hand, Move, PartialPosition, Piece, PieceKind, Position, Square};
 use std::collections::HashMap;
@@ -89,7 +89,7 @@ impl From<&PartialPosition> for jkf::Initial {
 }
 
 impl TryFrom<&Position> for jkf::JsonKifuFormat {
-    type Error = NormalizerError;
+    type Error = ConvertError;
 
     fn try_from(pos: &Position) -> Result<Self, Self::Error> {
         let mut moves = vec![jkf::MoveFormat::default()];
@@ -97,9 +97,9 @@ impl TryFrom<&Position> for jkf::JsonKifuFormat {
         for &mv in pos.moves() {
             let mmf = match mv {
                 Move::Normal { from, to, promote } => {
-                    let piece = pp
-                        .piece_at(from)
-                        .ok_or(NormalizerError::MoveInconsistent("no piece to move found"))?;
+                    let piece = pp.piece_at(from).ok_or_else(|| {
+                        ConvertError::Normalize(NormalizeError::NoPieceAt(from).to_string())
+                    })?;
                     jkf::MoveMoveFormat {
                         color: pp.side_to_move().into(),
                         from: Some((&from).into()),
@@ -127,18 +127,19 @@ impl TryFrom<&Position> for jkf::JsonKifuFormat {
                 move_: Some(mmf),
                 ..Default::default()
             });
-            pp.make_move(mv)
-                .ok_or(NormalizerError::CoreConvert(CoreConvertError::InvalidMove(
-                    mv,
-                )))?;
+            pp.make_move(mv).ok_or_else(|| {
+                ConvertError::Normalize(NormalizeError::MakeMoveFailed(mv).to_string())
+            })?;
         }
         let mut ret = jkf::JsonKifuFormat {
             header: HashMap::new(),
             initial: Some(pos.initial_position().into()),
             moves,
         };
-        ret.normalize()?;
-        Ok(ret)
+        match ret.normalize() {
+            Ok(()) => Ok(ret),
+            Err(err) => Err(ConvertError::Normalize(err.to_string())),
+        }
     }
 }
 
