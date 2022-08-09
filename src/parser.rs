@@ -4,7 +4,7 @@ mod kakinoki;
 mod ki2;
 mod kif;
 
-use crate::error::{ConvertError, ParserError};
+use crate::error::ParseError;
 use crate::jkf::JsonKifuFormat;
 use encoding_rs::{SHIFT_JIS, UTF_8};
 use nom::error::convert_error;
@@ -18,7 +18,7 @@ use std::path::Path;
 /// # Errors
 ///
 /// This function returns [`ConvertError`](crate::error::ConvertError) if it fails to parse the file.
-pub fn parse_csa_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ConvertError> {
+pub fn parse_csa_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ParseError> {
     let mut file = File::open(&path)?;
     let mut buf = String::new();
     file.read_to_string(&mut buf)?;
@@ -30,10 +30,13 @@ pub fn parse_csa_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, Convert
 /// # Errors
 ///
 /// This function returns [`ConvertError`](crate::error::ConvertError) if it fails to parse the string.
-pub fn parse_csa_str(s: &str) -> Result<JsonKifuFormat, ConvertError> {
+pub fn parse_csa_str(s: &str) -> Result<JsonKifuFormat, ParseError> {
     let mut jkf = JsonKifuFormat::try_from(csa::parse_csa(s)?)?;
-    jkf.normalize()?;
-    Ok(jkf)
+    if let Err(err) = jkf.normalize() {
+        Err(ParseError::Normalize(err.to_string()))
+    } else {
+        Ok(jkf)
+    }
 }
 
 /// Parses a KIF file to [`jkf::JsonKifuFormat`](crate::jkf::JsonKifuFormat)
@@ -45,22 +48,19 @@ pub fn parse_csa_str(s: &str) -> Result<JsonKifuFormat, ConvertError> {
 /// # Errors
 ///
 /// This function returns [`ConvertError`](crate::error::ConvertError) if it fails to parse the file.
-pub fn parse_kif_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ConvertError> {
+pub fn parse_kif_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ParseError> {
     let mut file = File::open(&path)?;
-    let ext = path
-        .as_ref()
-        .extension()
-        .ok_or(ParserError::FileExtensionError)?;
+    let ext = path.as_ref().extension().ok_or(ParseError::FileExtension)?;
     let encoding = match ext.to_str() {
         Some("kif") => SHIFT_JIS,
         Some("kifu") => UTF_8,
-        _ => return Err(ConvertError::Parser(ParserError::FileExtensionError)),
+        _ => return Err(ParseError::FileExtension),
     };
     let mut buf = Vec::new();
     file.read_to_end(&mut buf)?;
     let (cow, _, had_errors) = encoding.decode(&buf);
     if had_errors {
-        return Err(ConvertError::Parser(ParserError::DecodeError));
+        return Err(ParseError::Decode);
     }
     parse_kif_str(&cow)
 }
@@ -70,13 +70,16 @@ pub fn parse_kif_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, Convert
 /// # Errors
 ///
 /// This function returns [`ConvertError`](crate::error::ConvertError) if it fails to parse the string.
-pub fn parse_kif_str(s: &str) -> Result<JsonKifuFormat, ConvertError> {
+pub fn parse_kif_str(s: &str) -> Result<JsonKifuFormat, ParseError> {
     match kif::parse(s).finish() {
         Ok((_, mut jkf)) => {
-            jkf.normalize()?;
-            Ok(jkf)
+            if let Err(err) = jkf.normalize() {
+                Err(ParseError::Normalize(err.to_string()))
+            } else {
+                Ok(jkf)
+            }
         }
-        Err(err) => Err(ConvertError::KifError(convert_error(s, err))),
+        Err(err) => Err(ParseError::Kif(convert_error(s, err))),
     }
 }
 
@@ -89,22 +92,19 @@ pub fn parse_kif_str(s: &str) -> Result<JsonKifuFormat, ConvertError> {
 /// # Errors
 ///
 /// This function returns [`ConvertError`](crate::error::ConvertError) if it fails to parse the file.
-pub fn parse_ki2_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ConvertError> {
+pub fn parse_ki2_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ParseError> {
     let mut file = File::open(&path)?;
-    let ext = path
-        .as_ref()
-        .extension()
-        .ok_or(ParserError::FileExtensionError)?;
+    let ext = path.as_ref().extension().ok_or(ParseError::FileExtension)?;
     let encoding = match ext.to_str() {
         Some("ki2") => SHIFT_JIS,
         Some("ki2u") => UTF_8,
-        _ => return Err(ConvertError::Parser(ParserError::FileExtensionError)),
+        _ => return Err(ParseError::FileExtension),
     };
     let mut buf = Vec::new();
     file.read_to_end(&mut buf)?;
     let (cow, _, had_errors) = encoding.decode(&buf);
     if had_errors {
-        return Err(ConvertError::Parser(ParserError::DecodeError));
+        return Err(ParseError::Decode);
     }
     parse_ki2_str(&cow)
 }
@@ -114,13 +114,16 @@ pub fn parse_ki2_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, Convert
 /// # Errors
 ///
 /// This function returns [`ConvertError`](crate::error::ConvertError) if it fails to parse the string.
-pub fn parse_ki2_str(s: &str) -> Result<JsonKifuFormat, ConvertError> {
+pub fn parse_ki2_str(s: &str) -> Result<JsonKifuFormat, ParseError> {
     match ki2::parse(s).finish() {
         Ok((_, mut jkf)) => {
-            jkf.normalize()?;
-            Ok(jkf)
+            if let Err(err) = jkf.normalize() {
+                Err(ParseError::Normalize(err.to_string()))
+            } else {
+                Ok(jkf)
+            }
         }
-        Err(err) => Err(ConvertError::Ki2Error(convert_error(s, err))),
+        Err(err) => Err(ParseError::Ki2(convert_error(s, err))),
     }
 }
 
@@ -129,11 +132,13 @@ pub fn parse_ki2_str(s: &str) -> Result<JsonKifuFormat, ConvertError> {
 /// # Errors
 ///
 /// This function returns [`ConvertError`](crate::error::ConvertError) if it fails to parse the file.
-pub fn parse_jkf_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ConvertError> {
+pub fn parse_jkf_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ParseError> {
     let file = File::open(&path)?;
-    match serde_json::from_reader::<_, JsonKifuFormat>(BufReader::new(file)) {
-        Ok(jkf) => Ok(jkf),
-        Err(err) => Err(ConvertError::SerdeError(err)),
+    let mut jkf = serde_json::from_reader::<_, JsonKifuFormat>(BufReader::new(file))?;
+    if let Err(err) = jkf.normalize() {
+        Err(ParseError::Normalize(err.to_string()))
+    } else {
+        Ok(jkf)
     }
 }
 
@@ -142,10 +147,12 @@ pub fn parse_jkf_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, Convert
 /// # Errors
 ///
 /// This function returns [`ConvertError`](crate::error::ConvertError) if it fails to parse the file.
-pub fn parse_jkf_str(s: &str) -> Result<JsonKifuFormat, ConvertError> {
-    match serde_json::from_str::<JsonKifuFormat>(s) {
-        Ok(jkf) => Ok(jkf),
-        Err(err) => Err(ConvertError::SerdeError(err)),
+pub fn parse_jkf_str(s: &str) -> Result<JsonKifuFormat, ParseError> {
+    let mut jkf = serde_json::from_str::<JsonKifuFormat>(s)?;
+    if let Err(err) = jkf.normalize() {
+        Err(ParseError::Normalize(err.to_string()))
+    } else {
+        Ok(jkf)
     }
 }
 

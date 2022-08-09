@@ -1,6 +1,6 @@
-use crate::error::{CoreConvertError, NormalizerError};
+use crate::error::NormalizeError;
 use crate::jkf::*;
-use shogi_core::{LegalityChecker, PartialPosition, PieceKind};
+use shogi_core::{LegalityChecker, PartialPosition};
 use shogi_legality_lite::LiteLegalityChecker;
 use shogi_official_kifu::display_single_move_kansuji;
 
@@ -259,10 +259,13 @@ fn pk2k(pk: shogi_core::PieceKind) -> Kind {
 }
 
 impl JsonKifuFormat {
-    pub fn normalize(&mut self) -> Result<(), NormalizerError> {
+    pub fn normalize(&mut self) -> Result<(), NormalizeError> {
         normalize_initial(self)?;
         let pos = if let Some(initial) = &self.initial {
-            initial.try_into()?
+            match PartialPosition::try_from(initial) {
+                Ok(pos) => pos,
+                Err(err) => return Err(NormalizeError::Convert(err.to_string())),
+            }
         } else {
             PartialPosition::startpos()
         };
@@ -271,7 +274,7 @@ impl JsonKifuFormat {
     }
 }
 
-fn normalize_initial(jkf: &mut JsonKifuFormat) -> Result<(), NormalizerError> {
+fn normalize_initial(jkf: &mut JsonKifuFormat) -> Result<(), NormalizeError> {
     if let Some(initial) = &mut jkf.initial {
         *initial = match initial.data {
             Some(STATE_HIRATE) => Initial {
@@ -325,12 +328,12 @@ fn calculate_from(
     mmf: &MoveMoveFormat,
     pos: &PartialPosition,
     to: shogi_core::Square,
-) -> Result<Option<PlaceFormat>, NormalizerError> {
+) -> Result<Option<PlaceFormat>, NormalizeError> {
     let color = pos.side_to_move();
     let bb = LiteLegalityChecker.normal_to_candidates(
         pos,
         to,
-        shogi_core::Piece::new(PieceKind::from(mmf.piece), color),
+        shogi_core::Piece::new(shogi_core::PieceKind::from(mmf.piece), color),
     );
     let mut froms = bb.into_iter().collect::<Vec<_>>();
     match bb.count() {
@@ -342,7 +345,7 @@ fn calculate_from(
         2.. => {
             let relative = mmf
                 .relative
-                .ok_or_else(|| NormalizerError::AmbiguousMoveFrom(froms.clone()))?;
+                .ok_or_else(|| NormalizeError::AmbiguousMoveFrom(froms.clone()))?;
             let (to_rel_file, to_rel_rank) = (to.relative_file(color), to.relative_rank(color));
             match relative {
                 Relative::L => froms.retain(|sq| sq.relative_file(color) > to_rel_file),
@@ -375,13 +378,13 @@ fn calculate_from(
                     y: froms[0].rank() as u8,
                 }))
             } else {
-                Err(NormalizerError::AmbiguousMoveFrom(froms))
+                Err(NormalizeError::AmbiguousMoveFrom(froms))
             }
         }
     }
 }
 
-fn normalize_move(mmf: &mut MoveMoveFormat, pos: &PartialPosition) -> Result<(), NormalizerError> {
+fn normalize_move(mmf: &mut MoveMoveFormat, pos: &PartialPosition) -> Result<(), NormalizeError> {
     mmf.color = match pos.side_to_move() {
         shogi_core::Color::Black => Color::Black,
         shogi_core::Color::White => Color::White,
@@ -393,21 +396,25 @@ fn normalize_move(mmf: &mut MoveMoveFormat, pos: &PartialPosition) -> Result<(),
                 x: mv.to().file() as u8,
                 y: mv.to().rank() as u8,
             })
-            .ok_or(NormalizerError::NoLastMove)?;
+            .ok_or(NormalizeError::NoLastMove)?;
     }
-    let to = shogi_core::Square::try_from(&mmf.to)?;
+    let to = match shogi_core::Square::try_from(&mmf.to) {
+        Ok(to) => to,
+        Err(err) => return Err(NormalizeError::Convert(err.to_string())),
+    };
     if mmf.from.is_none() {
         mmf.from = calculate_from(mmf, pos, to)?;
     }
     if let Some(pf) = &mmf.from {
         if let Ok(from) = pf.try_into() {
             // Retrieve piece
-            let piece = pos
-                .piece_at(from)
-                .ok_or(NormalizerError::MoveInconsistent("no piece to move found"))?;
+            let piece = match pos.piece_at(from) {
+                Some(piece) => piece,
+                None => return Err(NormalizeError::NoPieceAt(from)),
+            };
             let from_piece_kind = piece.piece_kind();
             let to_piece_kind = {
-                let pk = PieceKind::from(mmf.piece);
+                let pk = shogi_core::PieceKind::from(mmf.piece);
                 if mmf.promote.unwrap_or_default() {
                     pk.promote().unwrap_or(pk)
                 } else {
@@ -440,7 +447,10 @@ fn normalize_move(mmf: &mut MoveMoveFormat, pos: &PartialPosition) -> Result<(),
             mmf.from = None;
         }
     }
-    let mv = (&*mmf).try_into()?;
+    let mv = match shogi_core::Move::try_from(&*mmf) {
+        Ok(mv) => mv,
+        Err(err) => return Err(NormalizeError::Convert(err.to_string())),
+    };
     // Set relative?
     if mmf.relative.is_none() {
         if let Some(mut display) = display_single_move_kansuji(pos, mv) {
@@ -469,7 +479,7 @@ fn normalize_moves(
     moves: &mut [MoveFormat],
     mut pos: PartialPosition,
     mut totals: [TimeFormat; 2],
-) -> Result<(), NormalizerError> {
+) -> Result<(), NormalizeError> {
     for mf in moves {
         // Normalize forks
         if let Some(forks) = &mut mf.forks {
@@ -485,10 +495,12 @@ fn normalize_moves(
         }
         if let Some(mmf) = &mut mf.move_ {
             normalize_move(mmf, &pos)?;
-            let mv = (&*mmf).try_into()?;
-            pos.make_move(mv).ok_or(NormalizerError::CoreConvert(
-                CoreConvertError::InvalidMove(mv),
-            ))?;
+            let mv = match shogi_core::Move::try_from(&*mmf) {
+                Ok(mv) => mv,
+                Err(err) => return Err(NormalizeError::Convert(err.to_string())),
+            };
+            pos.make_move(mv)
+                .ok_or(NormalizeError::MakeMoveFailed(mv))?;
         } else {
             break;
         }

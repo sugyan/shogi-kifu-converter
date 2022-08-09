@@ -1,4 +1,4 @@
-use crate::error::CoreConvertError;
+use crate::error::{ConvertError, NormalizeError};
 use crate::jkf;
 use crate::jkf::{Color::*, Kind::*, Preset::*};
 use shogi_core::{Color, Move, PartialPosition, Piece, PieceKind, Position, Square};
@@ -34,15 +34,15 @@ impl From<jkf::Kind> for shogi_core::PieceKind {
 }
 
 impl TryFrom<&jkf::PlaceFormat> for Square {
-    type Error = CoreConvertError;
+    type Error = ConvertError;
 
     fn try_from(pf: &jkf::PlaceFormat) -> Result<Self, Self::Error> {
-        Square::new(pf.x, pf.y).ok_or(CoreConvertError::InvalidPlace((pf.x, pf.y)))
+        Square::new(pf.x, pf.y).ok_or(ConvertError::InvalidSquare((pf.x, pf.y)))
     }
 }
 
 impl TryFrom<&jkf::MoveMoveFormat> for Move {
-    type Error = CoreConvertError;
+    type Error = ConvertError;
 
     fn try_from(mmf: &jkf::MoveMoveFormat) -> Result<Self, Self::Error> {
         if let Some(from) = &mmf.from {
@@ -61,7 +61,7 @@ impl TryFrom<&jkf::MoveMoveFormat> for Move {
 }
 
 impl TryFrom<&jkf::Initial> for PartialPosition {
-    type Error = CoreConvertError;
+    type Error = ConvertError;
 
     fn try_from(initial: &jkf::Initial) -> Result<Self, Self::Error> {
         match initial.preset {
@@ -69,7 +69,7 @@ impl TryFrom<&jkf::Initial> for PartialPosition {
             PresetOther => {
                 let data = initial
                     .data
-                    .ok_or(CoreConvertError::InitialBoardNoDataWithPresetOTHER)?;
+                    .ok_or(ConvertError::InitialBoardNoDataWithPresetOTHER)?;
                 let mut pos = PartialPosition::empty();
                 // Board
                 for (i, v) in data.board.iter().enumerate() {
@@ -97,7 +97,7 @@ impl TryFrom<&jkf::Initial> for PartialPosition {
                         (hand.HI, PieceKind::Rook),
                     ] {
                         for _ in 0..num {
-                            *h = h.added(pk).ok_or(CoreConvertError::InitialHands(pk))?;
+                            *h = h.added(pk).ok_or(ConvertError::InvalidHandPiece(pk))?;
                         }
                     }
                 }
@@ -133,7 +133,7 @@ impl TryFrom<&jkf::Initial> for PartialPosition {
 }
 
 impl TryFrom<&jkf::JsonKifuFormat> for Position {
-    type Error = CoreConvertError;
+    type Error = ConvertError;
 
     fn try_from(jkf: &jkf::JsonKifuFormat) -> Result<Self, Self::Error> {
         let mut pos = if let Some(initial) = &jkf.initial {
@@ -144,7 +144,9 @@ impl TryFrom<&jkf::JsonKifuFormat> for Position {
         for mf in jkf.moves.iter() {
             if let Some(mv) = &mf.move_ {
                 let mv = mv.try_into()?;
-                pos.make_move(mv).ok_or(CoreConvertError::InvalidMove(mv))?;
+                pos.make_move(mv).ok_or_else(|| {
+                    ConvertError::Normalize(NormalizeError::MakeMoveFailed(mv).to_string())
+                })?;
             }
         }
         Ok(pos)
