@@ -14,6 +14,7 @@ pub mod jkf;
 mod normalizer;
 pub mod parser;
 mod shogi_core;
+include!(concat!(env!("OUT_DIR"), "/pkf/mod.rs"));
 
 /// An alias for [`jkf::JsonKifuFormat`]
 pub type JKF = jkf::JsonKifuFormat;

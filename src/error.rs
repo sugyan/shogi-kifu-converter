@@ -70,3 +70,20 @@ pub enum ParseError {
     #[error("Faield to normalize: {0}")]
     Normalize(String),
 }
+
+/// An error that can occur while converting from/into [`pkf`](crate::pkf)
+#[derive(Error, Debug, PartialEq)]
+pub enum PkfError {
+    /// From [`std::num::TryFromIntError`]
+    #[error(transparent)]
+    TryFromInt(#[from] std::num::TryFromIntError),
+    /// Color value must not be default
+    #[error("No color value")]
+    ColorRequired,
+    /// PieceKind value must not be default
+    #[error("No piece kind value")]
+    PieceKindRequired,
+    /// Square value must not be default
+    #[error("No square value")]
+    SquareRequired,
+}
