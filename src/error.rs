@@ -89,6 +89,9 @@ pub enum PkfConvertError {
     /// PieceKind value must not be default
     #[error("No piece kind value")]
     PieceKindRequired,
+    /// MoveSpecial value must not be default
+    #[error("No move special value")]
+    MoveSpecialRequired,
     /// Neither `move_` nor `special` is specified
     #[error("Empty move info")]
     EmptyMove,
