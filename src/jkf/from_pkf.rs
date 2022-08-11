@@ -60,7 +60,7 @@ impl TryFrom<Option<&pkf::Square>> for jkf::PlaceFormat {
                 y: u8::try_from(sq.rank)?,
             })
         } else {
-            Err(PkfConvertError::MissingField { name: "square" })
+            Err(PkfConvertError::MissingField("square"))
         }
     }
 }
@@ -164,6 +164,59 @@ impl TryFrom<EnumOrUnknown<pkf::move_::Special>> for jkf::MoveSpecial {
     }
 }
 
+impl TryFrom<EnumOrUnknown<pkf::move_::Relative>> for jkf::Relative {
+    type Error = PkfConvertError;
+
+    fn try_from(relative: EnumOrUnknown<pkf::move_::Relative>) -> Result<Self, Self::Error> {
+        match relative.enum_value() {
+            Ok(rel) => match rel {
+                pkf::move_::Relative::L => Ok(jkf::Relative::L),
+                pkf::move_::Relative::C => Ok(jkf::Relative::C),
+                pkf::move_::Relative::R => Ok(jkf::Relative::R),
+                pkf::move_::Relative::U => Ok(jkf::Relative::U),
+                pkf::move_::Relative::M => Ok(jkf::Relative::M),
+                pkf::move_::Relative::D => Ok(jkf::Relative::D),
+                pkf::move_::Relative::LU => Ok(jkf::Relative::LU),
+                pkf::move_::Relative::LM => Ok(jkf::Relative::LM),
+                pkf::move_::Relative::LD => Ok(jkf::Relative::LD),
+                pkf::move_::Relative::RU => Ok(jkf::Relative::RU),
+                pkf::move_::Relative::RM => Ok(jkf::Relative::RM),
+                pkf::move_::Relative::RD => Ok(jkf::Relative::RD),
+                pkf::move_::Relative::H => Ok(jkf::Relative::H),
+                _ => Err(PkfConvertError::MoveRelativeRequired),
+            },
+            Err(value) => Err(PkfConvertError::UnknownEnumValue {
+                name: "move.relative",
+                value,
+            }),
+        }
+    }
+}
+
+impl TryFrom<&pkf::move_::Time> for jkf::Time {
+    type Error = PkfConvertError;
+
+    fn try_from(time: &pkf::move_::Time) -> Result<Self, Self::Error> {
+        let tf = |s, some_h| -> Result<jkf::TimeFormat, Self::Error> {
+            let m = (s / 60) % 60;
+            let h = s / 3600;
+            Ok(jkf::TimeFormat {
+                h: if some_h || h > 0 {
+                    Some(u8::try_from(h)?)
+                } else {
+                    None
+                },
+                m: m as u8,
+                s: (s % 60) as u8,
+            })
+        };
+        Ok(jkf::Time {
+            now: tf(time.now, false)?,
+            total: tf(time.total, true)?,
+        })
+    }
+}
+
 impl TryFrom<&pkf::Move> for jkf::MoveFormat {
     type Error = PkfConvertError;
 
@@ -179,8 +232,16 @@ impl TryFrom<&pkf::Move> for jkf::MoveFormat {
                         piece: normal.piece_kind.try_into()?,
                         same: None,
                         promote: normal.promote,
-                        capture: None,
-                        relative: None,
+                        capture: match normal.capture.try_into() {
+                            Ok(cap) => Some(cap),
+                            Err(PkfConvertError::PieceKindRequired) => None,
+                            Err(err) => return Err(err),
+                        },
+                        relative: match normal.relative.try_into() {
+                            Ok(rel) => Some(rel),
+                            Err(PkfConvertError::MoveRelativeRequired) => None,
+                            Err(err) => return Err(err),
+                        },
                     });
                 }
                 pkf::move_::Action::Drop(drop) => {
@@ -192,7 +253,11 @@ impl TryFrom<&pkf::Move> for jkf::MoveFormat {
                         same: None,
                         promote: None,
                         capture: None,
-                        relative: None,
+                        relative: match drop.relative.try_into() {
+                            Ok(rel) => Some(rel),
+                            Err(PkfConvertError::MoveRelativeRequired) => None,
+                            Err(err) => return Err(err),
+                        },
                     });
                 }
                 pkf::move_::Action::Special(special) => {
@@ -202,6 +267,20 @@ impl TryFrom<&pkf::Move> for jkf::MoveFormat {
         }
         if !mv.comments.is_empty() {
             ret.comments = Some(mv.comments.clone());
+        }
+        if let Some(time) = mv.time.as_ref() {
+            ret.time = Some(time.try_into()?)
+        }
+        if !mv.forks.is_empty() {
+            let mut forks = Vec::new();
+            for fork in &mv.forks {
+                let mut f = Vec::new();
+                for mv in &fork.fork {
+                    f.push(mv.try_into()?);
+                }
+                forks.push(f);
+            }
+            ret.forks = Some(forks);
         }
         Ok(ret)
     }
@@ -237,11 +316,28 @@ impl TryFrom<&pkf::Kifu> for jkf::JsonKifuFormat {
         for mv in &kifu.moves {
             moves.push(mv.try_into()?);
         }
+        set_same(&mut moves, None);
         Ok(jkf::JsonKifuFormat {
             header,
             initial,
             moves,
         })
+    }
+}
+
+fn set_same(moves: &mut [jkf::MoveFormat], mut prev: Option<jkf::PlaceFormat>) {
+    for mv in moves.iter_mut() {
+        if let Some(mmf) = mv.move_.as_mut() {
+            if Some(mmf.to) == prev {
+                mmf.same = Some(true);
+            }
+        }
+        if let Some(forks) = mv.forks.as_mut() {
+            for fork in forks.iter_mut() {
+                set_same(fork, prev);
+            }
+        }
+        prev = mv.move_.map(|mmf| mmf.to);
     }
 }
 

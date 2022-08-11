@@ -55,6 +55,26 @@ impl TryFrom<jkf::Preset> for pkf::initial::Preset {
     }
 }
 
+impl From<jkf::Relative> for pkf::move_::Relative {
+    fn from(relative: jkf::Relative) -> Self {
+        match relative {
+            jkf::Relative::L => pkf::move_::Relative::L,
+            jkf::Relative::C => pkf::move_::Relative::C,
+            jkf::Relative::R => pkf::move_::Relative::R,
+            jkf::Relative::U => pkf::move_::Relative::U,
+            jkf::Relative::M => pkf::move_::Relative::M,
+            jkf::Relative::D => pkf::move_::Relative::D,
+            jkf::Relative::LU => pkf::move_::Relative::LU,
+            jkf::Relative::LM => pkf::move_::Relative::LM,
+            jkf::Relative::LD => pkf::move_::Relative::LD,
+            jkf::Relative::RU => pkf::move_::Relative::RU,
+            jkf::Relative::RM => pkf::move_::Relative::RM,
+            jkf::Relative::RD => pkf::move_::Relative::RD,
+            jkf::Relative::H => pkf::move_::Relative::H,
+        }
+    }
+}
+
 impl From<jkf::MoveSpecial> for pkf::move_::Special {
     fn from(special: jkf::MoveSpecial) -> Self {
         use jkf::MoveSpecial::*;
@@ -128,6 +148,24 @@ impl TryFrom<&jkf::StateFormat> for pkf::initial::State {
     }
 }
 
+impl TryFrom<&jkf::Initial> for pkf::Initial {
+    type Error = PkfConvertError;
+
+    fn try_from(initial: &jkf::Initial) -> Result<Self, Self::Error> {
+        let mut ret = pkf::Initial::new();
+        ret.position = if let Some(data) = &initial.data {
+            Some(pkf::initial::Position::State(
+                pkf::initial::State::try_from(data)?,
+            ))
+        } else {
+            Some(pkf::initial::Position::Preset(
+                pkf::initial::Preset::try_from(initial.preset)?.into(),
+            ))
+        };
+        Ok(ret)
+    }
+}
+
 impl From<&jkf::PlaceFormat> for pkf::Square {
     fn from(place: &jkf::PlaceFormat) -> Self {
         pkf::Square {
@@ -135,6 +173,19 @@ impl From<&jkf::PlaceFormat> for pkf::Square {
             rank: place.y.into(),
             ..Default::default()
         }
+    }
+}
+
+impl From<&jkf::Time> for pkf::move_::Time {
+    fn from(time: &jkf::Time) -> Self {
+        let mut ret = pkf::move_::Time::new();
+        ret.now = time.now.h.unwrap_or_default() as u32 * 3600
+            + time.now.m as u32 * 60
+            + time.now.s as u32;
+        ret.total = time.total.h.unwrap_or_default() as u32 * 3600
+            + time.total.m as u32 * 60
+            + time.total.s as u32;
+        ret
     }
 }
 
@@ -151,6 +202,17 @@ impl TryFrom<&jkf::MoveFormat> for pkf::Move {
                     to: Some((&mmf.to).into()).into(),
                     piece_kind: pkf::PieceKind::from(mmf.piece).into(),
                     promote: mmf.promote,
+                    capture: mmf
+                        .capture
+                        .map_or(pkf::PieceKind::PIECE_KIND_NONE, pkf::PieceKind::from)
+                        .into(),
+                    relative: mmf
+                        .relative
+                        .map_or(
+                            pkf::move_::Relative::RELATIVE_NONE,
+                            pkf::move_::Relative::from,
+                        )
+                        .into(),
                     ..Default::default()
                 }))
             } else {
@@ -158,6 +220,13 @@ impl TryFrom<&jkf::MoveFormat> for pkf::Move {
                     color: pkf::Color::from(mmf.color).into(),
                     to: Some((&mmf.to).into()).into(),
                     piece_kind: pkf::PieceKind::from(mmf.piece).into(),
+                    relative: mmf
+                        .relative
+                        .map_or(
+                            pkf::move_::Relative::RELATIVE_NONE,
+                            pkf::move_::Relative::from,
+                        )
+                        .into(),
                     ..Default::default()
                 }))
             }
@@ -166,24 +235,21 @@ impl TryFrom<&jkf::MoveFormat> for pkf::Move {
                 pkf::move_::Action::Special(pkf::move_::Special::from(special).into())
             })
         };
-        Ok(ret)
-    }
-}
-
-impl TryFrom<&jkf::Initial> for pkf::Initial {
-    type Error = PkfConvertError;
-
-    fn try_from(initial: &jkf::Initial) -> Result<Self, Self::Error> {
-        let mut ret = pkf::Initial::new();
-        ret.position = if let Some(data) = &initial.data {
-            Some(pkf::initial::Position::State(
-                pkf::initial::State::try_from(data)?,
-            ))
-        } else {
-            Some(pkf::initial::Position::Preset(
-                pkf::initial::Preset::try_from(initial.preset)?.into(),
-            ))
-        };
+        if let Some(comments) = &mv.comments {
+            ret.comments = comments.clone();
+        }
+        if let Some(time) = &mv.time {
+            ret.time = Some(time.into()).into();
+        }
+        if let Some(forks) = &mv.forks {
+            for fork in forks {
+                let mut f = pkf::move_::Forks::new();
+                for mv in fork {
+                    f.fork.push(mv.try_into()?);
+                }
+                ret.forks.push(f);
+            }
+        }
         Ok(ret)
     }
 }

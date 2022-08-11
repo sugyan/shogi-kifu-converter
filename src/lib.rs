@@ -47,10 +47,6 @@ mod tests {
             if path.extension() != Some(OsStr::new("json")) {
                 return Ok(());
             }
-            // TODO: https://github.com/rust-shogi-crates/shogi_official_kifu/issues/5
-            if path == Path::new("data/tests/ki2/simple.json") {
-                return Ok(());
-            }
 
             let file = File::open(&path)?;
             let orig = serde_json::from_reader::<_, JsonKifuFormat>(BufReader::new(file))
