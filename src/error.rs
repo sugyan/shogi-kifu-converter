@@ -70,3 +70,40 @@ pub enum ParseError {
     #[error("Faield to normalize: {0}")]
     Normalize(String),
 }
+
+/// An error that can occur while converting from/into [`pkf`](crate::pkf)
+#[derive(Error, Debug, PartialEq)]
+pub enum PkfConvertError {
+    /// From [`std::num::TryFromIntError`]
+    #[error(transparent)]
+    TryFromInt(#[from] std::num::TryFromIntError),
+    /// Got unknown value from `enum_value`
+    #[error("Unknown value for {name}: {value}")]
+    UnknownEnumValue {
+        /// The name of the enum
+        name: &'static str,
+        /// The value of the enum
+        value: i32,
+    },
+    /// Got default value for required field
+    #[error("Missing field value: {0}")]
+    MissingField(&'static str),
+    /// [`pkf::Color`](crate::pkf::Color) value must not be default
+    #[error("No color value")]
+    ColorRequired,
+    /// [`pkf::PieceKind`](crate::pkf::PieceKind)  value must not be default
+    #[error("No piece kind value")]
+    PieceKindRequired,
+    /// [`pkf::move_::Special`](crate::pkf::move_::Special) value must not be default
+    #[error("No move special value")]
+    MoveSpecialRequired,
+    /// [`pkf::move_::Relative`](crate::pkf::move_::Relative) value must not be default
+    #[error("No move relative value")]
+    MoveRelativeRequired,
+    /// Neither `move_` nor `special` is specified
+    #[error("Empty move info")]
+    EmptyMove,
+    /// Got unsupported preset value
+    #[error("Preset {0:?} is not supported")]
+    UnsupportedPreset(crate::jkf::Preset),
+}
