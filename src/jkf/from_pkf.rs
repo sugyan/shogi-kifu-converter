@@ -1,97 +1,111 @@
-use crate::error::PkfError;
-use crate::jkf;
-use crate::pkf;
+use crate::error::PkfConvertError;
+use crate::{jkf, pkf};
+use protobuf::EnumOrUnknown;
 
-impl TryFrom<&pkf::Color> for jkf::Color {
-    type Error = PkfError;
+impl TryFrom<EnumOrUnknown<pkf::Color>> for jkf::Color {
+    type Error = PkfConvertError;
 
-    fn try_from(c: &pkf::Color) -> Result<Self, Self::Error> {
-        match c {
-            pkf::Color::COLOR_NONE => Err(PkfError::ColorRequired),
-            pkf::Color::BLACK => Ok(jkf::Color::Black),
-            pkf::Color::WHITE => Ok(jkf::Color::White),
+    fn try_from(color: EnumOrUnknown<pkf::Color>) -> Result<Self, Self::Error> {
+        match color.enum_value() {
+            Ok(c) => match c {
+                pkf::Color::BLACK => Ok(jkf::Color::Black),
+                pkf::Color::WHITE => Ok(jkf::Color::White),
+                _ => Err(PkfConvertError::ColorRequired),
+            },
+            Err(value) => Err(PkfConvertError::UnknownEnumValue {
+                name: "color",
+                value,
+            }),
         }
     }
 }
 
-impl TryFrom<&pkf::PieceKind> for jkf::Kind {
-    type Error = PkfError;
+impl TryFrom<EnumOrUnknown<pkf::PieceKind>> for jkf::Kind {
+    type Error = PkfConvertError;
 
-    fn try_from(pk: &pkf::PieceKind) -> Result<Self, Self::Error> {
-        match pk {
-            pkf::PieceKind::PIECE_KIND_NONE => Err(PkfError::PieceKindRequired),
-            pkf::PieceKind::FU => Ok(jkf::Kind::FU),
-            pkf::PieceKind::KY => Ok(jkf::Kind::KY),
-            pkf::PieceKind::KE => Ok(jkf::Kind::KE),
-            pkf::PieceKind::GI => Ok(jkf::Kind::GI),
-            pkf::PieceKind::KI => Ok(jkf::Kind::KI),
-            pkf::PieceKind::KA => Ok(jkf::Kind::KA),
-            pkf::PieceKind::HI => Ok(jkf::Kind::HI),
-            pkf::PieceKind::OU => Ok(jkf::Kind::OU),
-            pkf::PieceKind::TO => Ok(jkf::Kind::TO),
-            pkf::PieceKind::NY => Ok(jkf::Kind::NY),
-            pkf::PieceKind::NK => Ok(jkf::Kind::NK),
-            pkf::PieceKind::NG => Ok(jkf::Kind::NG),
-            pkf::PieceKind::UM => Ok(jkf::Kind::UM),
-            pkf::PieceKind::RY => Ok(jkf::Kind::RY),
+    fn try_from(piece_kind: EnumOrUnknown<pkf::PieceKind>) -> Result<Self, Self::Error> {
+        match piece_kind.enum_value() {
+            Ok(pk) => match pk {
+                pkf::PieceKind::PIECE_KIND_NONE => Err(PkfConvertError::PieceKindRequired),
+                pkf::PieceKind::FU => Ok(jkf::Kind::FU),
+                pkf::PieceKind::KY => Ok(jkf::Kind::KY),
+                pkf::PieceKind::KE => Ok(jkf::Kind::KE),
+                pkf::PieceKind::GI => Ok(jkf::Kind::GI),
+                pkf::PieceKind::KI => Ok(jkf::Kind::KI),
+                pkf::PieceKind::KA => Ok(jkf::Kind::KA),
+                pkf::PieceKind::HI => Ok(jkf::Kind::HI),
+                pkf::PieceKind::OU => Ok(jkf::Kind::OU),
+                pkf::PieceKind::TO => Ok(jkf::Kind::TO),
+                pkf::PieceKind::NY => Ok(jkf::Kind::NY),
+                pkf::PieceKind::NK => Ok(jkf::Kind::NK),
+                pkf::PieceKind::NG => Ok(jkf::Kind::NG),
+                pkf::PieceKind::UM => Ok(jkf::Kind::UM),
+                pkf::PieceKind::RY => Ok(jkf::Kind::RY),
+            },
+            Err(value) => Err(PkfConvertError::UnknownEnumValue {
+                name: "piece_kind",
+                value,
+            }),
         }
     }
 }
 
 impl TryFrom<Option<&pkf::Square>> for jkf::PlaceFormat {
-    type Error = PkfError;
+    type Error = PkfConvertError;
 
-    fn try_from(opt: Option<&pkf::Square>) -> Result<Self, Self::Error> {
-        if let Some(sq) = opt {
+    fn try_from(square: Option<&pkf::Square>) -> Result<Self, Self::Error> {
+        if let Some(sq) = square {
             Ok(jkf::PlaceFormat {
                 x: u8::try_from(sq.file)?,
                 y: u8::try_from(sq.rank)?,
             })
         } else {
-            Err(PkfError::SquareRequired)
+            Err(PkfConvertError::MissingField { name: "square" })
         }
     }
 }
 
 impl From<&pkf::initial::Preset> for jkf::Preset {
     fn from(preset: &pkf::initial::Preset) -> Self {
+        use jkf::Preset::*;
+        use pkf::initial::Preset::*;
         match preset {
-            pkf::initial::Preset::PRESET_HIRATE => jkf::Preset::PresetHirate,
-            pkf::initial::Preset::PRESET_KY => jkf::Preset::PresetKY,
-            pkf::initial::Preset::PRESET_KY_R => jkf::Preset::PresetKYR,
-            pkf::initial::Preset::PRESET_KA => jkf::Preset::PresetKA,
-            pkf::initial::Preset::PRESET_HI => jkf::Preset::PresetHI,
-            pkf::initial::Preset::PRESET_HIKY => jkf::Preset::PresetHIKY,
-            pkf::initial::Preset::PRESET_2 => jkf::Preset::Preset2,
-            pkf::initial::Preset::PRESET_4 => jkf::Preset::Preset4,
-            pkf::initial::Preset::PRESET_6 => jkf::Preset::Preset6,
-            pkf::initial::Preset::PRESET_8 => jkf::Preset::Preset8,
-            pkf::initial::Preset::PRESET_10 => jkf::Preset::Preset10,
+            PRESET_HIRATE => PresetHirate,
+            PRESET_KY => PresetKY,
+            PRESET_KY_R => PresetKYR,
+            PRESET_KA => PresetKA,
+            PRESET_HI => PresetHI,
+            PRESET_HIKY => PresetHIKY,
+            PRESET_2 => Preset2,
+            PRESET_4 => Preset4,
+            PRESET_6 => Preset6,
+            PRESET_8 => Preset8,
+            PRESET_10 => Preset10,
         }
     }
 }
 
 impl TryFrom<&pkf::Move> for jkf::MoveFormat {
-    type Error = PkfError;
+    type Error = PkfConvertError;
 
     fn try_from(mv: &pkf::Move) -> Result<Self, Self::Error> {
         let mut ret = jkf::MoveFormat::default();
-        if let Some(move_or_special) = &mv.move_or_special {
+        if let Some(move_or_special) = &mv.action {
             match move_or_special {
-                pkf::move_::Move_or_special::Normal(normal) => {
+                pkf::move_::Action::Normal(normal) => {
                     ret.move_ = Some(jkf::MoveMoveFormat {
-                        color: (&normal.color.unwrap()).try_into()?,
+                        color: normal.color.try_into()?,
                         from: Some(normal.from.as_ref().try_into()?),
                         to: normal.to.as_ref().try_into()?,
-                        piece: (&normal.piece_kind.unwrap()).try_into()?,
+                        piece: normal.piece_kind.try_into()?,
                         same: None,
                         promote: None,
                         capture: None,
                         relative: None,
                     })
                 }
-                pkf::move_::Move_or_special::Drop(drop) => {}
-                pkf::move_::Move_or_special::Special(special) => {}
+                pkf::move_::Action::Drop(drop) => {}
+                pkf::move_::Action::Special(special) => {}
             }
         }
         if !mv.comments.is_empty() {
@@ -102,18 +116,18 @@ impl TryFrom<&pkf::Move> for jkf::MoveFormat {
 }
 
 impl TryFrom<&pkf::Kifu> for jkf::JsonKifuFormat {
-    type Error = PkfError;
+    type Error = PkfConvertError;
 
     fn try_from(kifu: &pkf::Kifu) -> Result<Self, Self::Error> {
         let header = kifu.header.clone();
         let initial = kifu.initial.as_ref().map(|initial| {
-            if let Some(preset_or_state) = initial.preset_or_state.as_ref() {
+            if let Some(preset_or_state) = &initial.position {
                 match preset_or_state {
-                    pkf::initial::Preset_or_state::Preset(preset) => jkf::Initial {
+                    pkf::initial::Position::Preset(preset) => jkf::Initial {
                         preset: (&preset.unwrap()).into(),
                         data: None,
                     },
-                    pkf::initial::Preset_or_state::State(_) => {
+                    pkf::initial::Position::State(_) => {
                         todo!()
                     }
                 }
@@ -126,7 +140,7 @@ impl TryFrom<&pkf::Kifu> for jkf::JsonKifuFormat {
         });
         let mut moves = Vec::new();
         for mv in &kifu.moves {
-            moves.push(jkf::MoveFormat::try_from(mv)?);
+            moves.push(mv.try_into()?);
         }
         Ok(jkf::JsonKifuFormat {
             header,
@@ -142,11 +156,13 @@ mod tests {
 
     #[test]
     fn from_default() {
-        let ret = jkf::JsonKifuFormat::try_from(&pkf::Kifu {
-            moves: vec![pkf::Move::default()],
-            ..Default::default()
-        });
-        assert_eq!(Ok(jkf::JsonKifuFormat::default()), ret);
+        assert_eq!(
+            Ok(jkf::JsonKifuFormat::default()),
+            jkf::JsonKifuFormat::try_from(&pkf::Kifu {
+                moves: vec![pkf::Move::default()],
+                ..Default::default()
+            })
+        );
     }
 
     #[test]
@@ -156,7 +172,7 @@ mod tests {
                 .into_iter()
                 .collect(),
             initial: Some(pkf::Initial {
-                preset_or_state: Some(pkf::initial::Preset_or_state::Preset(
+                position: Some(pkf::initial::Position::Preset(
                     pkf::initial::Preset::PRESET_KY.into(),
                 )),
                 ..Default::default()
@@ -165,25 +181,23 @@ mod tests {
             moves: vec![
                 pkf::Move::default(),
                 pkf::Move {
-                    move_or_special: Some(pkf::move_::Move_or_special::Normal(
-                        pkf::move_::Normal {
-                            color: pkf::Color::WHITE.into(),
-                            from: Some(pkf::Square {
-                                file: 7,
-                                rank: 3,
-                                ..Default::default()
-                            })
-                            .into(),
-                            to: Some(pkf::Square {
-                                file: 7,
-                                rank: 4,
-                                ..Default::default()
-                            })
-                            .into(),
-                            piece_kind: pkf::PieceKind::FU.into(),
+                    action: Some(pkf::move_::Action::Normal(pkf::move_::Normal {
+                        color: pkf::Color::WHITE.into(),
+                        from: Some(pkf::Square {
+                            file: 7,
+                            rank: 3,
                             ..Default::default()
-                        },
-                    )),
+                        })
+                        .into(),
+                        to: Some(pkf::Square {
+                            file: 7,
+                            rank: 4,
+                            ..Default::default()
+                        })
+                        .into(),
+                        piece_kind: pkf::PieceKind::FU.into(),
+                        ..Default::default()
+                    })),
                     ..Default::default()
                 },
             ],

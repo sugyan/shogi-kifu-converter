@@ -16,5 +16,58 @@ pub mod parser;
 mod shogi_core;
 include!(concat!(env!("OUT_DIR"), "/pkf/mod.rs"));
 
-/// An alias for [`jkf::JsonKifuFormat`]
-pub type JKF = jkf::JsonKifuFormat;
+#[cfg(test)]
+mod tests {
+    use crate::jkf::JsonKifuFormat;
+    use crate::pkf::Kifu;
+    use std::ffi::OsStr;
+    use std::fs::{DirEntry, File};
+    use std::io::{BufReader, Result};
+    use std::path::Path;
+
+    fn visit_dirs(dir: &Path, cb: &dyn Fn(&DirEntry) -> Result<()>) -> Result<()> {
+        if dir.is_dir() {
+            for entry in dir.read_dir()? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_dir() {
+                    visit_dirs(&path, cb)?;
+                } else {
+                    cb(&entry)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn jkf_pkf_jkf() -> Result<()> {
+        visit_dirs(Path::new("data/tests"), &|entry: &DirEntry| -> Result<()> {
+            let path = entry.path();
+            if path.extension() != Some(OsStr::new("json")) {
+                return Ok(());
+            }
+            // TODO: https://github.com/rust-shogi-crates/shogi_official_kifu/issues/5
+            if path == Path::new("data/tests/ki2/simple.json") {
+                return Ok(());
+            }
+
+            let file = File::open(&path)?;
+            let orig = serde_json::from_reader::<_, JsonKifuFormat>(BufReader::new(file))
+                .expect("failed to parse json");
+            let pkf = match Kifu::try_from(&orig) {
+                Ok(pos) => pos,
+                Err(err) => panic!("failed to convert jkf to pkf {}: {err}", path.display()),
+            };
+            let curr = match JsonKifuFormat::try_from(&pkf) {
+                Ok(jkf) => jkf,
+                Err(err) => panic!(
+                    "failed to convert position to jkf {}: {err}",
+                    path.display()
+                ),
+            };
+            assert_eq!(orig, curr, "difference in {}", path.display());
+            Ok(())
+        })
+    }
+}

@@ -73,17 +73,26 @@ pub enum ParseError {
 
 /// An error that can occur while converting from/into [`pkf`](crate::pkf)
 #[derive(Error, Debug, PartialEq)]
-pub enum PkfError {
+pub enum PkfConvertError {
     /// From [`std::num::TryFromIntError`]
     #[error(transparent)]
     TryFromInt(#[from] std::num::TryFromIntError),
+    /// Got unknown value from `enum_value`
+    #[error("Unknown value for {name}: {value}")]
+    UnknownEnumValue { name: &'static str, value: i32 },
+    /// Got default value for required field
+    #[error("Missing field value: {name}")]
+    MissingField { name: &'static str },
     /// Color value must not be default
     #[error("No color value")]
     ColorRequired,
     /// PieceKind value must not be default
     #[error("No piece kind value")]
     PieceKindRequired,
-    /// Square value must not be default
-    #[error("No square value")]
-    SquareRequired,
+    /// Neither `move_` nor `special` is specified
+    #[error("Empty move info")]
+    EmptyMove,
+    /// Got unsupported preset value
+    #[error("Preset {0:?} is not supported")]
+    UnsupportedPreset(crate::jkf::Preset),
 }
