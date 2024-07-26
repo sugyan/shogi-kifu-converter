@@ -29,7 +29,7 @@ impl InformationData {
         InformationData {
             preset: lhs.preset.or(rhs.preset),
             hands: Self::merged_hands(lhs.hands, rhs.hands),
-            map: lhs.map.into_iter().chain(rhs.map.into_iter()).collect(),
+            map: lhs.map.into_iter().chain(rhs.map).collect(),
         }
     }
     fn merged_hands(lhs: [Hand; 2], rhs: [Hand; 2]) -> [Hand; 2] {

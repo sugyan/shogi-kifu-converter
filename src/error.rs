@@ -37,6 +37,9 @@ pub enum NormalizeError {
     /// An error that occurred while converting from/into [`shogi_core::Position`]
     #[error("Failed to convert: {0}")]
     Convert(String),
+    /// Incorrect sequence of move colors
+    #[error("Invalid color")]
+    InvalidColor,
 }
 
 /// An error that can occur while parsing kifu data
