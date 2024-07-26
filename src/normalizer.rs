@@ -262,6 +262,22 @@ impl JsonKifuFormat {
     pub fn normalize(&mut self) -> Result<(), NormalizeError> {
         normalize_initial(self)?;
         let pos = if let Some(initial) = &self.initial {
+            if !matches!(initial.preset, Preset::PresetHirate | Preset::PresetOther)
+                && self
+                    .moves
+                    .get(1)
+                    .and_then(|mf| mf.move_.map(|mmf| mmf.color == Color::Black))
+                    .unwrap_or_default()
+            {
+                for mv in self.moves[1..].iter_mut() {
+                    if let Some(mmf) = &mut mv.move_ {
+                        mmf.color = match mmf.color {
+                            Color::Black => Color::White,
+                            Color::White => Color::Black,
+                        };
+                    }
+                }
+            }
             match PartialPosition::try_from(initial) {
                 Ok(pos) => pos,
                 Err(err) => return Err(NormalizeError::Convert(err.to_string())),
@@ -385,10 +401,12 @@ fn calculate_from(
 }
 
 fn normalize_move(mmf: &mut MoveMoveFormat, pos: &PartialPosition) -> Result<(), NormalizeError> {
-    mmf.color = match pos.side_to_move() {
-        shogi_core::Color::Black => Color::Black,
-        shogi_core::Color::White => Color::White,
-    };
+    if matches!(
+        (mmf.color, pos.side_to_move()),
+        (Color::Black, shogi_core::Color::White) | (Color::White, shogi_core::Color::Black)
+    ) {
+        return Err(NormalizeError::InvalidColor);
+    }
     if mmf.same.is_some() {
         mmf.to = pos
             .last_move()
@@ -506,4 +524,67 @@ fn normalize_moves(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_moves_empty() {
+        let pos = PartialPosition::startpos();
+        assert!(normalize_moves(&mut [], pos, [TimeFormat::default(); 2]).is_ok());
+    }
+
+    #[test]
+    fn normalize_moves_invalid_color() {
+        {
+            let pos = PartialPosition::startpos();
+            assert!(
+                normalize_moves(
+                    &mut [MoveFormat {
+                        move_: Some(MoveMoveFormat {
+                            color: Color::Black,
+                            piece: Kind::FU,
+                            from: Some(PlaceFormat { x: 7, y: 7 }),
+                            to: PlaceFormat { x: 7, y: 6 },
+                            promote: None,
+                            capture: None,
+                            relative: None,
+                            same: None,
+                        }),
+                        ..Default::default()
+                    }],
+                    pos,
+                    [TimeFormat::default(); 2]
+                )
+                .is_ok(),
+                "normalize should succeed"
+            );
+        }
+        {
+            let pos = PartialPosition::startpos();
+            assert!(
+                normalize_moves(
+                    &mut [MoveFormat {
+                        move_: Some(MoveMoveFormat {
+                            color: Color::White, // invalid color
+                            piece: Kind::FU,
+                            from: Some(PlaceFormat { x: 7, y: 7 }),
+                            to: PlaceFormat { x: 7, y: 6 },
+                            promote: None,
+                            capture: None,
+                            relative: None,
+                            same: None,
+                        }),
+                        ..Default::default()
+                    }],
+                    pos,
+                    [TimeFormat::default(); 2]
+                )
+                .is_err(),
+                "normalize should fail"
+            );
+        }
+    }
 }
