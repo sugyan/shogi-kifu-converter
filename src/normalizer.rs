@@ -339,8 +339,8 @@ fn calculate_from(
     match bb.count() {
         0 => Ok(None),
         1 => Ok(bb.into_iter().next().map(|sq| PlaceFormat {
-            x: sq.file() as u8,
-            y: sq.rank() as u8,
+            x: sq.file(),
+            y: sq.rank(),
         })),
         2.. => {
             let relative = mmf
@@ -374,8 +374,8 @@ fn calculate_from(
             };
             if froms.len() == 1 {
                 Ok(Some(PlaceFormat {
-                    x: froms[0].file() as u8,
-                    y: froms[0].rank() as u8,
+                    x: froms[0].file(),
+                    y: froms[0].rank(),
                 }))
             } else {
                 Err(NormalizeError::AmbiguousMoveFrom(froms))
@@ -393,8 +393,8 @@ fn normalize_move(mmf: &mut MoveMoveFormat, pos: &PartialPosition) -> Result<(),
         mmf.to = pos
             .last_move()
             .map(|mv| PlaceFormat {
-                x: mv.to().file() as u8,
-                y: mv.to().rank() as u8,
+                x: mv.to().file(),
+                y: mv.to().rank(),
             })
             .ok_or(NormalizeError::NoLastMove)?;
     }
