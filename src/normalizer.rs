@@ -499,11 +499,11 @@ fn normalize_moves(
     mut totals: [TimeFormat; 2],
 ) -> Result<(), NormalizeError> {
     for mf in moves {
-        // Normalize forks
+        // Normalize forks (errors in forks are non-fatal; skip invalid ones)
         if let Some(forks) = &mut mf.forks {
-            for v in forks.iter_mut() {
-                normalize_moves(v, pos.clone(), totals)?;
-            }
+            forks.retain_mut(|v| {
+                normalize_moves(v, pos.clone(), totals).is_ok()
+            });
         }
         // Calculate total time
         if let Some(time) = &mut mf.time {
@@ -517,8 +517,9 @@ fn normalize_moves(
                 Ok(mv) => mv,
                 Err(err) => return Err(NormalizeError::Convert(err.to_string())),
             };
-            pos.make_move(mv)
-                .ok_or(NormalizeError::MakeMoveFailed(mv))?;
+            if pos.make_move(mv).is_none() {
+                return Err(NormalizeError::MakeMoveFailed(mv));
+            }
         } else {
             break;
         }

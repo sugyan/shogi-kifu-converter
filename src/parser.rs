@@ -164,6 +164,19 @@ mod tests {
     use std::io::Result;
 
     #[test]
+    fn bug_kif_files() {
+        // These files have irregular/non-standard fork structures but should parse without error
+        assert!(
+            parse_kif_file("test/bug_mega.kif").is_ok(),
+            "bug_mega.kif should parse successfully"
+        );
+        assert!(
+            parse_kif_file("test/bug_big.kif").is_ok(),
+            "bug_big.kif should parse successfully"
+        );
+    }
+
+    #[test]
     fn csa_to_jkf() -> Result<()> {
         let dir = Path::new("data/tests/csa");
         for entry in dir.read_dir()? {
