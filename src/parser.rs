@@ -178,6 +178,20 @@ mod tests {
     }
 
     #[test]
+    fn kif_fork_beyond_main_line() {
+        // The ply in a `変化` header is taken from the file, so it can name a ply the
+        // line it attaches to does not have. That must be a parse error, not a panic.
+        let kif = "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n\n変化：5手\n   5 ８四歩(83)\n";
+        assert!(parse_kif_str(kif).is_err());
+
+        // A fork that does name an existing ply still works.
+        let kif = "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n\n変化：1手\n   1 ２六歩(27)\n";
+        let jkf = parse_kif_str(kif).expect("should parse");
+        assert_eq!(jkf.moves.len(), 2);
+        assert_eq!(jkf.moves[1].forks.as_ref().map(Vec::len), Some(1));
+    }
+
+    #[test]
     fn csa_to_jkf() -> Result<()> {
         let dir = Path::new("data/tests/csa");
         for entry in dir.read_dir()? {

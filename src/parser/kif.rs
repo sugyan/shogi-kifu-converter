@@ -3,7 +3,7 @@ use crate::jkf::*;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::{digit1, line_ending, not_line_ending, space0};
-use nom::combinator::{map, map_res, opt, value};
+use nom::combinator::{map, map_opt, map_res, opt, value};
 use nom::error::VerboseError;
 use nom::multi::{many0, many1};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
@@ -160,37 +160,42 @@ fn main_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>>
 }
 
 fn entire_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
+    // The ply a fork branches at is the number printed in the file, so it can name a
+    // ply that does not exist in the line it attaches to. Returns `None` in that case
+    // instead of indexing out of bounds.
+    fn attach(moves: &mut [MoveFormat], index: usize, fork: Vec<MoveFormat>) -> Option<()> {
+        let mf = moves.get_mut(index)?;
+        if let Some(v) = &mut mf.forks {
+            v.push(fork);
+        } else {
+            mf.forks = Some(vec![fork]);
+        }
+        Some(())
+    }
+
     fn merge_forks(
         (mut moves, mut forks): (Vec<MoveFormat>, Vec<(usize, Vec<MoveFormat>)>),
-    ) -> Vec<MoveFormat> {
+    ) -> Option<Vec<MoveFormat>> {
         let mut stack = Vec::new();
         while let Some(fork) = forks.pop() {
             stack.push(fork);
             if let Some((i, last)) = forks.last_mut() {
                 while stack.last().map_or(false, |(j, _)| j >= i) {
                     if let Some((j, fork)) = stack.pop() {
-                        if let Some(v) = &mut last[j - *i].forks {
-                            v.push(fork);
-                        } else {
-                            last[j - *i].forks = Some(vec![fork]);
-                        }
+                        attach(last, j.checked_sub(*i)?, fork)?;
                     }
                 }
             }
         }
         while let Some((i, fork)) = stack.pop() {
-            if let Some(v) = &mut moves[i].forks {
-                v.push(fork);
-            } else {
-                moves[i].forks = Some(vec![fork]);
-            }
+            attach(&mut moves, i, fork)?;
         }
-        moves
+        Some(moves)
     }
 
-    map(
+    map_opt(
         pair(
-            preceded(opt(not_move_line), main_moves),
+            preceded(many0(not_move_line), main_moves),
             many0(preceded(many0(not_move_line), moves_with_index)),
         ),
         merge_forks,
