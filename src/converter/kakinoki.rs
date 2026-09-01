@@ -145,12 +145,29 @@ fn write_initial_preset<W: Write>(preset: Preset, sink: &mut W) -> Result {
     Ok(())
 }
 
+/// The order KIF files conventionally lead with. `JsonKifuFormat::header` is a
+/// `HashMap`, so iterating it directly renders the same record differently between
+/// runs; anything not listed here follows in key order.
+#[rustfmt::skip]
+const HEADER_ORDER: [&str; 12] = [
+    "開始日時", "終了日時", "表題", "棋戦", "戦型", "持ち時間",
+    "秒読み", "場所", "先手", "下手", "後手", "上手",
+];
+
 pub(super) fn write_header<W: Write>(header: &HashMap<String, String>, sink: &mut W) -> Result {
-    for (k, v) in header {
-        sink.write_str(k)?;
-        sink.write_char('：')?;
-        sink.write_str(v)?;
-        sink.write_char('\n')?;
+    let mut rest = header
+        .keys()
+        .map(String::as_str)
+        .filter(|k| !HEADER_ORDER.contains(k))
+        .collect::<Vec<_>>();
+    rest.sort_unstable();
+    for k in HEADER_ORDER.into_iter().chain(rest) {
+        if let Some(v) = header.get(k) {
+            sink.write_str(k)?;
+            sink.write_char('：')?;
+            sink.write_str(v)?;
+            sink.write_char('\n')?;
+        }
     }
     Ok(())
 }
@@ -176,6 +193,32 @@ pub(super) fn write_initial<W: Write>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn header_order_is_stable() {
+        // `header` is a `HashMap`, so iterating it directly gave a different line order
+        // per run: the same record did not render byte-identically twice.
+        let expected = "\
+開始日時：2022/07/29
+棋戦：テスト
+先手：Sente
+後手：Gote
+備考：ノート
+";
+        // Fresh maps, since the iteration order is seeded per instance.
+        for _ in 0..16 {
+            let header = HashMap::from([
+                (String::from("後手"), String::from("Gote")),
+                (String::from("備考"), String::from("ノート")),
+                (String::from("先手"), String::from("Sente")),
+                (String::from("棋戦"), String::from("テスト")),
+                (String::from("開始日時"), String::from("2022/07/29")),
+            ]);
+            let mut s = String::new();
+            write_header(&header, &mut s).expect("writing to a String cannot fail");
+            assert_eq!(s, expected);
+        }
+    }
 
     #[test]
     fn kansuji() {

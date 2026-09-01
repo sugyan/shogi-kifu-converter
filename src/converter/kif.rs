@@ -190,8 +190,12 @@ mod tests {
         let path = Path::new("data/tests/kif/forks.json");
         let jkf = parse_jkf_file(&path).expect("failed to parse kif");
         let kif = jkf.to_kif_owned();
+        // The header is rendered in a fixed order, so it can be asserted too.
         assert_eq!(
             &r#"
+先手：
+後手：
+手合割：平手
 手数----指手---------消費時間--
    1 ７六歩(77)   ( 0:00/00:00:00)
    2 ８四歩(83)   ( 0:00/00:00:00)
@@ -232,7 +236,7 @@ mod tests {
   14 同　金(32)   ( 0:00/00:00:00)
   15 ７七銀(68)   ( 0:00/00:00:00)
 "#[1..],
-            kif.lines().skip(3).collect::<Vec<_>>().join("\n") + "\n"
+            kif
         );
     }
 }
