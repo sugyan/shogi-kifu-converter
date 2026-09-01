@@ -212,15 +212,17 @@ impl Hand {
             _ => unreachable!(),
         }
     }
+    // Used to work out what `AL` stands for by subtracting the board from a full set,
+    // so a record with more of a kind than the standard set must not overflow.
     pub(crate) fn decrement(&mut self, kind: Kind) {
         match kind {
-            Kind::FU => self.FU -= 1,
-            Kind::KY => self.KY -= 1,
-            Kind::KE => self.KE -= 1,
-            Kind::GI => self.GI -= 1,
-            Kind::KI => self.KI -= 1,
-            Kind::KA => self.KA -= 1,
-            Kind::HI => self.HI -= 1,
+            Kind::FU => self.FU = self.FU.saturating_sub(1),
+            Kind::KY => self.KY = self.KY.saturating_sub(1),
+            Kind::KE => self.KE = self.KE.saturating_sub(1),
+            Kind::GI => self.GI = self.GI.saturating_sub(1),
+            Kind::KI => self.KI = self.KI.saturating_sub(1),
+            Kind::KA => self.KA = self.KA.saturating_sub(1),
+            Kind::HI => self.HI = self.HI.saturating_sub(1),
             _ => unreachable!(),
         }
     }

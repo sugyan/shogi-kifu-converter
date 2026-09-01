@@ -226,6 +226,20 @@ mod tests {
     }
 
     #[test]
+    fn csa_square_off_the_board() {
+        // `csa::Square` is two bare digits with no range check. File 0 with a non-zero
+        // rank is not the "in hand" encoding, and used to underflow a board index.
+        assert!(parse_csa_str("V2.2\nP+01FU\nP-51OU\n+\n").is_err());
+        assert!(parse_csa_str("V2.2\nP+90FU\nP-51OU\n+\n").is_err());
+        // `PI` with an off-board drop square.
+        assert!(parse_csa_str("V2.2\nPI09KY\n+\n").is_err());
+        // `(0, 0)` is the legal "in hand" encoding and must still be accepted.
+        let jkf = parse_csa_str("V2.2\nP+55FU\nP-51OU\nP+59OU\nP+00FU\n+\n").expect("in hand");
+        let data = jkf.initial.and_then(|i| i.data).expect("initial data");
+        assert_eq!(data.hands[0].FU, 1);
+    }
+
+    #[test]
     fn csa_to_jkf() -> Result<()> {
         let dir = Path::new("data/tests/csa");
         for entry in dir.read_dir()? {
