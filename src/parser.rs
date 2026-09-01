@@ -164,6 +164,20 @@ mod tests {
     use std::io::Result;
 
     #[test]
+    fn jkf_with_empty_moves() {
+        // The JKF schema puts no lower bound on `moves`, so `[]` is valid input
+        // and must not panic. It is left as-is, not padded with a lead-in entry.
+        let jkf = parse_jkf_str(r#"{"header":{},"moves":[]}"#).expect("should parse");
+        assert!(jkf.moves.is_empty());
+
+        // The converters make the same `moves[0]` / `moves[1..]` assumption.
+        use crate::converter::{ToCsa, ToKi2, ToKif};
+        assert_eq!(jkf.to_csa_owned(), "V2.2\nPI\n+\n");
+        assert_eq!(jkf.to_kif_owned(), "手数----指手---------消費時間--\n");
+        assert_eq!(jkf.to_ki2_owned(), "\n");
+    }
+
+    #[test]
     fn csa_to_jkf() -> Result<()> {
         let dir = Path::new("data/tests/csa");
         for entry in dir.read_dir()? {

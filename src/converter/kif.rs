@@ -157,7 +157,7 @@ fn write_move_lines<W: Write>(moves: &[MoveFormat], index: usize, sink: &mut W) 
 
 fn write_moves<W: Write>(moves: &[MoveFormat], sink: &mut W) -> Result {
     sink.write_str("手数----指手---------消費時間--\n")?;
-    if let Some(comments) = &moves[0].comments {
+    if let Some(comments) = moves.first().and_then(|mf| mf.comments.as_ref()) {
         for comment in comments {
             if !comment.starts_with('&') {
                 sink.write_char('*')?;
@@ -166,7 +166,7 @@ fn write_moves<W: Write>(moves: &[MoveFormat], sink: &mut W) -> Result {
             sink.write_char('\n')?;
         }
     }
-    write_move_lines(&moves[1..], 1, sink)
+    write_move_lines(moves.get(1..).unwrap_or_default(), 1, sink)
 }
 
 #[cfg(test)]

@@ -285,7 +285,10 @@ impl JsonKifuFormat {
         } else {
             PartialPosition::startpos()
         };
-        normalize_moves(&mut self.moves[1..], pos, [TimeFormat::default(); 2])?;
+        // `moves` may legitimately be empty: the JKF schema puts no lower bound on it,
+        // and only `moves[0]` (the initial position's comment slot) would be missing.
+        let moves = self.moves.get_mut(1..).unwrap_or_default();
+        normalize_moves(moves, pos, [TimeFormat::default(); 2])?;
         Ok(())
     }
 }

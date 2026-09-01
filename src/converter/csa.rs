@@ -24,7 +24,7 @@ impl ToCsa for JsonKifuFormat {
     fn to_csa<W: Write>(&self, sink: &mut W) -> Result {
         write_header(&self.header, sink)?;
         write_initial(&self.initial, sink)?;
-        write_moves(&self.moves[1..], sink)?;
+        write_moves(self.moves.get(1..).unwrap_or_default(), sink)?;
         Ok(())
     }
 }

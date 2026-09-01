@@ -40,7 +40,7 @@ fn write_move_kind<W: Write>(kind: Kind, sink: &mut W) -> Result {
 }
 
 fn write_moves<W: Write>(moves: &[MoveFormat], sink: &mut W) -> Result {
-    if let Some(comments) = &moves[0].comments {
+    if let Some(comments) = moves.first().and_then(|mf| mf.comments.as_ref()) {
         for comment in comments {
             if !comment.starts_with('&') {
                 sink.write_char('*')?;
@@ -49,7 +49,7 @@ fn write_moves<W: Write>(moves: &[MoveFormat], sink: &mut W) -> Result {
             sink.write_char('\n')?;
         }
     }
-    let mut it = moves[1..].iter().peekable();
+    let mut it = moves.get(1..).unwrap_or_default().iter().peekable();
     while let Some(mf) = it.next() {
         if let Some(mv) = &mf.move_ {
             match mv.color {
