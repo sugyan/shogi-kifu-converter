@@ -112,6 +112,11 @@ fn write_initial_data<W: Write>(data: &StateFormat, sink: &mut W) -> Result {
         sink.write_str("なし")?;
     }
     sink.write_char('\n')?;
+    // Readers take the absence of this line as Black to move, so it is only written
+    // when it says something.
+    if data.color == Color::White {
+        sink.write_str("後手番\n")?;
+    }
     Ok(())
 }
 

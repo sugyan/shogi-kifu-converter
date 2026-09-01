@@ -264,22 +264,6 @@ impl JsonKifuFormat {
     pub fn normalize(&mut self) -> Result<(), NormalizeError> {
         normalize_initial(self)?;
         let pos = if let Some(initial) = &self.initial {
-            if !matches!(initial.preset, Preset::PresetHirate | Preset::PresetOther)
-                && self
-                    .moves
-                    .get(1)
-                    .and_then(|mf| mf.move_.map(|mmf| mmf.color == Color::Black))
-                    .unwrap_or_default()
-            {
-                for mv in self.moves[1..].iter_mut() {
-                    if let Some(mmf) = &mut mv.move_ {
-                        mmf.color = match mmf.color {
-                            Color::Black => Color::White,
-                            Color::White => Color::Black,
-                        };
-                    }
-                }
-            }
             match PartialPosition::try_from(initial) {
                 Ok(pos) => pos,
                 Err(err) => return Err(NormalizeError::Convert(err.to_string())),
@@ -287,6 +271,26 @@ impl JsonKifuFormat {
         } else {
             PartialPosition::startpos()
         };
+        // KIF and KI2 have no colour on a move line and assign it from the ply's
+        // parity, taking Black to move first. When the initial position says
+        // otherwise every colour is inverted. This covers the handicap presets, which
+        // are always White to move, and a board diagram carrying a `後手番` line.
+        if pos.side_to_move() == shogi_core::Color::White
+            && self
+                .moves
+                .get(1)
+                .and_then(|mf| mf.move_.map(|mmf| mmf.color == Color::Black))
+                .unwrap_or_default()
+        {
+            for mv in self.moves.iter_mut().skip(1) {
+                if let Some(mmf) = &mut mv.move_ {
+                    mmf.color = match mmf.color {
+                        Color::Black => Color::White,
+                        Color::White => Color::Black,
+                    };
+                }
+            }
+        }
         // `moves` may legitimately be empty: the JKF schema puts no lower bound on it,
         // and only `moves[0]` (the initial position's comment slot) would be missing.
         let moves = self.moves.get_mut(1..).unwrap_or_default();

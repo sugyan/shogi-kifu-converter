@@ -12,6 +12,7 @@ use std::collections::HashMap;
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Information {
     Preset(Preset),
+    Color(Color),
     HandBlack(Hand),
     HandWhite(Hand),
     KeyValue(String, String),
@@ -20,6 +21,7 @@ enum Information {
 #[derive(Debug, Default, PartialEq, Eq)]
 struct InformationData {
     preset: Option<Preset>,
+    color: Option<Color>,
     hands: [Hand; 2],
     map: HashMap<String, String>,
 }
@@ -28,6 +30,7 @@ impl InformationData {
     fn merged(lhs: Self, rhs: Self) -> InformationData {
         InformationData {
             preset: lhs.preset.or(rhs.preset),
+            color: lhs.color.or(rhs.color),
             hands: Self::merged_hands(lhs.hands, rhs.hands),
             map: lhs.map.into_iter().chain(rhs.map).collect(),
         }
@@ -202,6 +205,27 @@ fn information_line_hands(input: &str) -> IResult<&str, Information, VerboseErro
     )(input)
 }
 
+/// A bare `先手番` / `後手番` line (`上手番` / `下手番` in a handicap game) states the
+/// side to move for a board diagram. It carries no `：`, so it does not reach
+/// [`information_line_keyvalue`].
+fn information_line_color(input: &str) -> IResult<&str, Information, VerboseError<&str>> {
+    terminated(
+        map(
+            terminated(
+                alt((
+                    value(Color::Black, tag("先手")),
+                    value(Color::White, tag("後手")),
+                    value(Color::Black, tag("下手")),
+                    value(Color::White, tag("上手")),
+                )),
+                tag("番"),
+            ),
+            Information::Color,
+        ),
+        preceded(many0(one_of(" 　")), line_ending),
+    )(input)
+}
+
 fn information_line_keyvalue(input: &str) -> IResult<&str, Information, VerboseError<&str>> {
     terminated(
         map(
@@ -222,6 +246,7 @@ fn informations(input: &str) -> IResult<&str, InformationData, VerboseError<&str
             many0(comment_line),
             alt((
                 information_line_preset,
+                information_line_color,
                 information_line_hands,
                 information_line_keyvalue,
             )),
@@ -230,6 +255,7 @@ fn informations(input: &str) -> IResult<&str, InformationData, VerboseError<&str
             v.iter().fold(InformationData::default(), |mut acc, info| {
                 match info {
                     Information::Preset(p) => acc.preset = Some(*p),
+                    Information::Color(c) => acc.color = Some(*c),
                     Information::HandBlack(h) => acc.hands[0] = *h,
                     Information::HandWhite(h) => acc.hands[1] = *h,
                     Information::KeyValue(k, v) => {
@@ -332,7 +358,7 @@ pub(super) fn parse_without_moves(
                 Some(Initial {
                     preset: Preset::PresetOther,
                     data: Some(StateFormat {
-                        color: Color::Black,
+                        color: info.color.unwrap_or(Color::Black),
                         board,
                         hands: info.hands,
                     }),

@@ -262,6 +262,36 @@ mod tests {
     }
 
     #[test]
+    fn kif_initial_side_to_move() {
+        use crate::converter::ToKif;
+        use crate::jkf::Color;
+
+        // Two kings: White's on 5一, Black's on 5九.
+        let board = "手合割：その他\n後手の持駒：なし\n  ９ ８ ７ ６ ５ ４ ３ ２ １\n+---------------------------+\n| ・ ・ ・ ・v玉 ・ ・ ・ ・|一\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|二\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|三\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|四\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|五\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|六\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|七\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|八\n| ・ ・ ・ ・ 玉 ・ ・ ・ ・|九\n+---------------------------+\n先手の持駒：なし\n";
+
+        // White to move. The `後手番` line used to be swallowed as a non-move line, the
+        // initial state was hard-coded to Black, and move colours came from the ply
+        // parity, so the whole game came back inverted — here the White king's move
+        // would have been attributed to Black.
+        let kif = format!("{board}後手番\n手数----指手---------消費時間--\n   1 ５二玉(51)\n");
+        let jkf = parse_kif_str(&kif).expect("should parse");
+        let data = jkf.initial.and_then(|i| i.data).expect("initial data");
+        assert_eq!(data.color, Color::White);
+        assert_eq!(jkf.moves[1].move_.map(|m| m.color), Some(Color::White));
+        // The writer puts the line back, so the record round-trips.
+        assert_eq!(jkf.to_kif_owned(), kif);
+
+        // Black to move writes no line, which is what readers take as the default, so
+        // output for an existing record is unchanged.
+        let kif = format!("{board}手数----指手---------消費時間--\n   1 ５八玉(59)\n");
+        let jkf = parse_kif_str(&kif).expect("should parse");
+        let data = jkf.initial.and_then(|i| i.data).expect("initial data");
+        assert_eq!(data.color, Color::Black);
+        assert_eq!(jkf.moves[1].move_.map(|m| m.color), Some(Color::Black));
+        assert_eq!(jkf.to_kif_owned(), kif);
+    }
+
+    #[test]
     fn csa_to_jkf() -> Result<()> {
         let dir = Path::new("data/tests/csa");
         for entry in dir.read_dir()? {
