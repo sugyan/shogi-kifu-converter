@@ -3,19 +3,34 @@ use std::collections::HashMap;
 use std::fmt::{Result, Write};
 
 const SANYOU_SUJI: [char; 9] = ['１', '２', '３', '４', '５', '６', '７', '８', '９'];
-const KANSUJI: [char; 10] = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+const KANSUJI: [char; 9] = ['一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
 pub(super) fn write_sanyou_suji<W: Write>(num: u8, sink: &mut W) -> Result {
     sink.write_char(SANYOU_SUJI[num as usize - 1])?;
     Ok(())
 }
 
-pub(super) fn write_kansuji<W: Write>(mut num: u8, sink: &mut W) -> Result {
-    if num > 10 {
-        sink.write_char('十')?;
-        num -= 10;
+/// Ranks are always 1..=9, but a hand count is only bounded by `u8`: a `Position`
+/// converted from SFEN can hold any number of a piece, so spell the whole range.
+/// Writes nothing for 0, which no caller reaches.
+pub(super) fn write_kansuji<W: Write>(num: u8, sink: &mut W) -> Result {
+    let (hundreds, rest) = (num / 100, num % 100);
+    if hundreds > 0 {
+        if hundreds > 1 {
+            sink.write_char(KANSUJI[hundreds as usize - 1])?;
+        }
+        sink.write_char('百')?;
     }
-    sink.write_char(KANSUJI[num as usize - 1])?;
+    let (tens, ones) = (rest / 10, rest % 10);
+    if tens > 0 {
+        if tens > 1 {
+            sink.write_char(KANSUJI[tens as usize - 1])?;
+        }
+        sink.write_char('十')?;
+    }
+    if ones > 0 {
+        sink.write_char(KANSUJI[ones as usize - 1])?;
+    }
     Ok(())
 }
 
@@ -151,4 +166,39 @@ pub(super) fn write_initial<W: Write>(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kansuji() {
+        // 1..=19 are unchanged; 20 used to come out as 十十 and 21 and above panicked.
+        #[rustfmt::skip]
+        let cases = [
+            (1, "一"), (9, "九"), (10, "十"), (11, "十一"), (18, "十八"), (19, "十九"),
+            (20, "二十"), (21, "二十一"), (30, "三十"), (99, "九十九"),
+            (100, "百"), (101, "百一"), (110, "百十"), (200, "二百"), (255, "二百五十五"),
+        ];
+        for (num, expected) in cases {
+            let mut s = String::new();
+            write_kansuji(num, &mut s).expect("writing to a String cannot fail");
+            assert_eq!(s, expected, "{num}");
+        }
+    }
+
+    #[test]
+    fn hand_with_a_large_count() {
+        // `Hand` counts are `u8`, and a `Position` built from SFEN can hold any number
+        // of a piece, so the writer has to survive counts a legal game cannot reach.
+        let hand = Hand {
+            FU: 100,
+            HI: 20,
+            ..Hand::default()
+        };
+        let mut s = String::new();
+        write_hand(&hand, &mut s).expect("writing to a String cannot fail");
+        assert_eq!(s, "飛二十　歩百　");
+    }
 }
