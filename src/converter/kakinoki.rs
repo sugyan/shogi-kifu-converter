@@ -110,11 +110,16 @@ fn write_initial_preset<W: Write>(preset: Preset, sink: &mut W) -> Result {
         Preset::PresetHI => sink.write_str("飛車落ち")?,
         Preset::PresetHIKY => sink.write_str("飛香落ち")?,
         Preset::Preset2 => sink.write_str("二枚落ち")?,
+        Preset::Preset3 => sink.write_str("三枚落ち")?,
         Preset::Preset4 => sink.write_str("四枚落ち")?,
+        Preset::Preset5 => sink.write_str("五枚落ち")?,
+        Preset::Preset5L => sink.write_str("左五枚落ち")?,
         Preset::Preset6 => sink.write_str("六枚落ち")?,
+        Preset::Preset7L => sink.write_str("左七枚落ち")?,
+        Preset::Preset7R => sink.write_str("右七枚落ち")?,
         Preset::Preset8 => sink.write_str("八枚落ち")?,
         Preset::Preset10 => sink.write_str("十枚落ち")?,
-        _ => unimplemented!(),
+        Preset::PresetOther => sink.write_str("その他")?,
     }
     sink.write_char('\n')?;
     Ok(())

@@ -192,6 +192,40 @@ mod tests {
     }
 
     #[test]
+    fn kif_handicap_presets_round_trip() {
+        use crate::converter::{ToCsa, ToKif};
+
+        // Every 手合割 the parser accepts must survive parse -> convert -> parse.
+        // 三枚落ち, 五枚落ち, 左五枚落ち, 左七枚落ち and 右七枚落ち used to panic.
+        #[rustfmt::skip]
+        let cases = [
+            ("平手", "PI"),
+            ("香落ち", "PI11KY"),
+            ("右香落ち", "PI91KY"),
+            ("角落ち", "PI22KA"),
+            ("飛車落ち", "PI82HI"),
+            ("飛香落ち", "PI82HI11KY"),
+            ("二枚落ち", "PI82HI22KA"),
+            ("三枚落ち", "PI82HI22KA11KY"),
+            ("四枚落ち", "PI82HI22KA91KY11KY"),
+            ("五枚落ち", "PI82HI22KA91KY11KY81KE"),
+            ("左五枚落ち", "PI82HI22KA91KY11KY21KE"),
+            ("六枚落ち", "PI82HI22KA91KY11KY81KE21KE"),
+            ("左七枚落ち", "PI82HI22KA91KY11KY81KE21KE31GI"),
+            ("右七枚落ち", "PI82HI22KA91KY11KY81KE21KE71GI"),
+            ("八枚落ち", "PI82HI22KA91KY11KY81KE21KE71GI31GI"),
+            ("十枚落ち", "PI82HI22KA91KY11KY81KE21KE71GI31GI61KI41KI"),
+        ];
+        for (name, pi) in cases {
+            let kif = format!("手合割：{name}\n手数----指手---------消費時間--\n");
+            let jkf = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(jkf.to_kif_owned(), kif, "{name}");
+            assert!(jkf.to_csa_owned().contains(pi), "{name}");
+            assert_eq!(parse_kif_str(&jkf.to_kif_owned()).ok(), Some(jkf), "{name}");
+        }
+    }
+
+    #[test]
     fn csa_to_jkf() -> Result<()> {
         let dir = Path::new("data/tests/csa");
         for entry in dir.read_dir()? {
