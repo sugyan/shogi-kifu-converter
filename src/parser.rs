@@ -240,6 +240,28 @@ mod tests {
     }
 
     #[test]
+    fn kif_declined_promotion() {
+        // A `不成` move line used to fail to parse, which stopped `many1` and left the
+        // rest of the file unconsumed — the call still returned `Ok`, with the game
+        // silently truncated at that move.
+        let kif = "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n   2 ３四歩(33)\n   3 ２二角不成(88)\n   4 ３二金(41)\n";
+        let jkf = parse_kif_str(kif).expect("should parse");
+        assert_eq!(jkf.moves.len(), 5);
+        assert_eq!(jkf.moves[3].move_.map(|m| m.promote), Some(Some(false)));
+
+        // A `変化` block after a `不成` line was dropped along with the moves.
+        let kif = format!("{kif}\n変化：4手\n   4 ８四歩(83)\n");
+        let jkf = parse_kif_str(&kif).expect("should parse");
+        assert_eq!(jkf.moves.len(), 5);
+        assert_eq!(jkf.moves[4].forks.as_ref().map(Vec::len), Some(1));
+
+        // The KIF spec leaves a declined promotion unmarked, so the writer does not
+        // put `不成` back. The position is unchanged either way.
+        use crate::converter::ToKif;
+        assert!(jkf.to_kif_owned().contains("   3 ２二角(88)"));
+    }
+
+    #[test]
     fn csa_to_jkf() -> Result<()> {
         let dir = Path::new("data/tests/csa");
         for entry in dir.read_dir()? {

@@ -46,7 +46,15 @@ fn move_special(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
 
 fn move_move(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
     map(
-        tuple((move_to, piece_kind, opt(tag("成")), move_from)),
+        // `不成` is written by some producers even though the KIF spec says to leave a
+        // declined promotion unmarked. Without an arm for it the move line fails to
+        // parse and `many1` silently drops the rest of the game.
+        tuple((
+            move_to,
+            piece_kind,
+            opt(alt((value(true, tag("成")), value(false, tag("不成"))))),
+            move_from,
+        )),
         |(to, kind, promote, from)| {
             MoveFormat {
                 move_: Some(MoveMoveFormat {
@@ -55,7 +63,7 @@ fn move_move(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
                     to: to.unwrap_or_default(), // Might be (0, 0) if it's the same place as previous
                     piece: kind,
                     same: if to.is_none() { Some(true) } else { None },
-                    promote: promote.map(|_| true),
+                    promote,
                     capture: None,
                     relative: None,
                 }),
