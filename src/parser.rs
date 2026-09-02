@@ -346,6 +346,25 @@ mod tests {
     }
 
     #[test]
+    fn kif_unreadable_hands_line_is_an_error() {
+        // A hands line the parser cannot read used to be picked up by the key-value rule
+        // and stored as `header["先手の持駒"]`: the call returned `Ok`, the position came
+        // back with no hand, and writing it out produced two 先手の持駒 lines.
+        let board = "  ９ ８ ７ ６ ５ ４ ３ ２ １\n+---------------------------+\n| ・ ・ ・ ・v玉 ・ ・ ・ ・|一\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|二\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|三\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|四\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|五\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|六\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|七\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|八\n| ・ ・ ・ ・ 玉 ・ ・ ・ ・|九\n+---------------------------+\n";
+        let kif = format!("手合割：その他\n後手の持駒：なし\n{board}先手の持駒：歩百　\n手数----指手---------消費時間--\n");
+        let err = parse_kif_str(&kif).expect_err("should not be accepted");
+        assert!(matches!(err, ParseError::Kif(_)), "{err:?}");
+
+        // The same file with a count the format can express is read as a hand, not as a
+        // header entry.
+        let kif = kif.replace("歩百", "歩九十九");
+        let jkf = parse_kif_str(&kif).expect("should parse");
+        assert!(!jkf.header.contains_key("先手の持駒"));
+        let data = jkf.initial.and_then(|i| i.data).expect("initial data");
+        assert_eq!(data.hands[0].FU, 99);
+    }
+
+    #[test]
     fn csa_to_jkf() -> Result<()> {
         let dir = Path::new("data/tests/csa");
         for entry in dir.read_dir()? {

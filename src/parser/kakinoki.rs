@@ -2,7 +2,7 @@ use crate::jkf::*;
 use nom::branch::alt;
 use nom::bytes::complete::{is_not, tag};
 use nom::character::complete::{line_ending, none_of, not_line_ending, one_of};
-use nom::combinator::{map, map_res, opt, value, verify};
+use nom::combinator::{cut, map, map_res, opt, value, verify};
 use nom::error::VerboseError;
 use nom::multi::{count, many0, many1};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
@@ -194,27 +194,32 @@ fn information_line_preset(input: &str) -> IResult<&str, Information, VerboseErr
     )(input)
 }
 
+// The names a side goes by at the start of an information line, shared by the 持駒 and
+// 番 lines so the two cannot drift apart on which spellings they accept.
+fn color_prefix(input: &str) -> IResult<&str, Color, VerboseError<&str>> {
+    alt((
+        value(Color::Black, tag("先手")),
+        value(Color::White, tag("後手")),
+        value(Color::Black, tag("下手")),
+        value(Color::White, tag("上手")),
+    ))(input)
+}
+
 fn information_line_hands(input: &str) -> IResult<&str, Information, VerboseError<&str>> {
-    terminated(
-        map(
-            pair(
-                terminated(
-                    alt((
-                        value(Color::Black, tag("先手")),
-                        value(Color::White, tag("後手")),
-                        value(Color::Black, tag("下手")),
-                        value(Color::White, tag("上手")),
-                    )),
-                    tag("の持駒："),
-                ),
-                information_value_hand,
-            ),
-            |(c, h)| match c {
-                Color::Black => Information::HandBlack(h),
-                Color::White => Information::HandWhite(h),
-            },
+    map(
+        pair(
+            terminated(color_prefix, tag("の持駒：")),
+            // Past the key the line is a hand and nothing else. Committing here keeps a
+            // value we cannot read from falling through to `information_line_keyvalue`,
+            // which matches anything with a `：` and would quietly turn the hand into a
+            // header entry. The `line_ending` is inside the `cut` for the same reason:
+            // trailing junk after a readable hand would otherwise take that route too.
+            cut(terminated(information_value_hand, line_ending)),
         ),
-        line_ending,
+        |(c, h)| match c {
+            Color::Black => Information::HandBlack(h),
+            Color::White => Information::HandWhite(h),
+        },
     )(input)
 }
 
@@ -223,18 +228,7 @@ fn information_line_hands(input: &str) -> IResult<&str, Information, VerboseErro
 /// [`information_line_keyvalue`].
 fn information_line_color(input: &str) -> IResult<&str, Information, VerboseError<&str>> {
     terminated(
-        map(
-            terminated(
-                alt((
-                    value(Color::Black, tag("先手")),
-                    value(Color::White, tag("後手")),
-                    value(Color::Black, tag("下手")),
-                    value(Color::White, tag("上手")),
-                )),
-                tag("番"),
-            ),
-            Information::Color,
-        ),
+        map(terminated(color_prefix, tag("番")), Information::Color),
         preceded(many0(one_of(" 　")), line_ending),
     )(input)
 }
@@ -453,6 +447,38 @@ mod tests {
         );
         // Repeating a kind adds the counts up, which can leave the range of a `u8`.
         assert!(information_line_hands("先手の持駒：歩九十九歩九十九歩九十九\n").is_err());
+    }
+
+    #[test]
+    fn hands_line_does_not_fall_through() {
+        // `information_line_keyvalue` matches anything with a `：`, so a hands line the
+        // parser could not read used to end up as `header["先手の持駒"]` with the hand
+        // silently gone. Past the key the line now has to be a hand.
+        assert!(information_line_hands("先手の持駒：歩百　\n").is_err());
+        // ... including trailing junk after a hand that does read.
+        assert!(information_line_hands("先手の持駒：歩　x\n").is_err());
+
+        // Readable hands are unaffected.
+        for line in [
+            "先手の持駒：なし\n",
+            "先手の持駒：金　桂　\n",
+            "後手の持駒：歩九十九　\n",
+        ] {
+            assert!(information_line_hands(line).is_ok(), "{line}");
+        }
+
+        // The commit point is after `の持駒：`, so an ordinary header line starting with
+        // a side's name still reaches `information_line_keyvalue`.
+        assert_eq!(
+            informations("先手：sugyan\n"),
+            Ok((
+                "",
+                InformationData {
+                    map: HashMap::from([(String::from("先手"), String::from("sugyan"))]),
+                    ..Default::default()
+                }
+            ))
+        );
     }
 
     #[test]
