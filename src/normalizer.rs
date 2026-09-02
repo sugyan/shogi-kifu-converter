@@ -288,20 +288,33 @@ impl JsonKifuFormat {
                 .and_then(|mf| mf.move_.map(|mmf| mmf.color == Color::Black))
                 .unwrap_or_default()
         {
-            for mv in self.moves.iter_mut().skip(1) {
-                if let Some(mmf) = &mut mv.move_ {
-                    mmf.color = match mmf.color {
-                        Color::Black => Color::White,
-                        Color::White => Color::Black,
-                    };
-                }
-            }
+            invert_colors(self.moves.get_mut(1..).unwrap_or_default());
         }
         // `moves` may legitimately be empty: the JKF schema puts no lower bound on it,
         // and only `moves[0]` (the initial position's comment slot) would be missing.
         let moves = self.moves.get_mut(1..).unwrap_or_default();
         normalize_moves(moves, pos, [TimeFormat::default(); 2])?;
         Ok(())
+    }
+}
+
+// A fork replaces a move of the main line, so its plies carry the same numbers and the
+// parser gave them colours from the same parity. Inverting has to reach them too, or
+// `normalize_moves` walks into a fork whose colours disagree with the position and
+// `normalize_move` rejects the whole record.
+fn invert_colors(moves: &mut [MoveFormat]) {
+    for mf in moves {
+        if let Some(mmf) = &mut mf.move_ {
+            mmf.color = match mmf.color {
+                Color::Black => Color::White,
+                Color::White => Color::Black,
+            };
+        }
+        if let Some(forks) = &mut mf.forks {
+            for fork in forks.iter_mut() {
+                invert_colors(fork);
+            }
+        }
     }
 }
 

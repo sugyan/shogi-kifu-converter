@@ -203,7 +203,10 @@ fn entire_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str
 
     map_opt(
         pair(
-            preceded(many0(not_move_line), main_moves),
+            // Exactly one line, the 手数 header: `not_move_line` does not exclude `&`,
+            // so a greedy `many0` would eat a bookmark comment that belongs to
+            // `main_moves` and so to `moves[0]`.
+            preceded(opt(not_move_line), main_moves),
             many0(preceded(many0(not_move_line), moves_with_index)),
         ),
         merge_forks,

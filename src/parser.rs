@@ -365,6 +365,53 @@ mod tests {
     }
 
     #[test]
+    fn kif_initial_bookmark_comment() {
+        use crate::jkf::MoveFormat;
+
+        // `&` marks the position a reader should open on. `not_move_line` excludes `*`
+        // but not `&`, so skipping more than the 手数 header before the move block ate
+        // the bookmark and `moves[0].comments` lost it.
+        let kif = "手合割：平手\n手数----指手---------消費時間--\n&読み込み時表示\n*ふつうのコメント\n   1 ７六歩(77)\n";
+        let jkf = parse_kif_str(kif).expect("should parse");
+        assert_eq!(
+            jkf.moves
+                .first()
+                .and_then(|mf: &MoveFormat| mf.comments.clone()),
+            Some(vec![
+                String::from("&読み込み時表示"),
+                String::from("ふつうのコメント"),
+            ])
+        );
+    }
+
+    #[test]
+    fn kif_handicap_with_a_fork() {
+        use crate::jkf::Color;
+
+        // 上手 moves first in a handicap game, but the parser colours every move from
+        // the ply's parity and `normalize` inverts them afterwards. That inversion has
+        // to reach the moves inside a `変化` block as well: it did not, so the fork kept
+        // the parity colours, disagreed with the position, and the whole record was
+        // rejected with `Invalid color`.
+        let kif = "手合割：香落ち\n手数----指手---------消費時間--\n   1 ５四歩(53)\n   2 ７六歩(77)\n   3 ５二飛(82)\n\n変化：3手\n   3 ３四歩(33)\n";
+        let jkf = parse_kif_str(kif).expect("should parse");
+
+        let colors = |moves: &[crate::jkf::MoveFormat]| -> Vec<Color> {
+            moves
+                .iter()
+                .filter_map(|mf| mf.move_.map(|m| m.color))
+                .collect()
+        };
+        assert_eq!(
+            colors(&jkf.moves),
+            [Color::White, Color::Black, Color::White]
+        );
+        // The fork replaces ply 3, so it starts on the same side.
+        let forks = jkf.moves[3].forks.as_ref().expect("fork at ply 3");
+        assert_eq!(colors(&forks[0]), [Color::White]);
+    }
+
+    #[test]
     fn csa_to_jkf() -> Result<()> {
         let dir = Path::new("data/tests/csa");
         for entry in dir.read_dir()? {

@@ -148,8 +148,10 @@ fn write_initial_preset<W: Write>(preset: Preset, sink: &mut W) -> Result {
         Preset::Preset7R => sink.write_str("PI82HI22KA91KY11KY81KE21KE71GI")?,
         Preset::Preset8 => sink.write_str("PI82HI22KA91KY11KY81KE21KE71GI31GI")?,
         Preset::Preset10 => sink.write_str("PI82HI22KA91KY11KY81KE21KE71GI31GI61KI41KI")?,
-        // Rejected by `TryFrom<&jkf::Initial>`: `OTHER` requires board data,
-        // and there is no CSA notation for a handicap without one.
+        // No parser produces this: `OTHER` without board data is rejected by
+        // `TryFrom<&jkf::Initial>` during `normalize`. `to_csa` does not run that
+        // check, though, so a hand-built value reaches here — and CSA has no notation
+        // for a handicap with no board to describe it.
         Preset::PresetOther => unimplemented!("`PresetOther` requires initial board data"),
     }
     sink.write_char('\n')?;
