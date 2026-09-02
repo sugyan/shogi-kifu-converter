@@ -4,6 +4,10 @@ use shogi_core::{LegalityChecker, PartialPosition};
 use shogi_legality_lite::LiteLegalityChecker;
 use shogi_official_kifu::display_single_move_kansuji;
 
+/// The largest hand count a kifu can carry: KIF spells it in kanji and stops at 九十九,
+/// and SFEN takes at most two digits in one token. `normalize` rejects anything larger.
+pub(crate) const MAX_HAND_COUNT: u8 = 99;
+
 pub(crate) const HIRATE_BOARD: [[Piece; 9]; 9] = {
     #[rustfmt::skip]
     const EMP: Piece = Piece { color: None, kind: None };
@@ -200,15 +204,17 @@ impl Hand {
             HI: 0,
         }
     }
+    // Driven by a record's own piece list, which is not bounded by the rules, so this
+    // saturates for the same reason `decrement` does.
     pub(crate) fn increment(&mut self, kind: Kind) {
         match kind {
-            Kind::FU => self.FU += 1,
-            Kind::KY => self.KY += 1,
-            Kind::KE => self.KE += 1,
-            Kind::GI => self.GI += 1,
-            Kind::KI => self.KI += 1,
-            Kind::KA => self.KA += 1,
-            Kind::HI => self.HI += 1,
+            Kind::FU => self.FU = self.FU.saturating_add(1),
+            Kind::KY => self.KY = self.KY.saturating_add(1),
+            Kind::KE => self.KE = self.KE.saturating_add(1),
+            Kind::GI => self.GI = self.GI.saturating_add(1),
+            Kind::KI => self.KI = self.KI.saturating_add(1),
+            Kind::KA => self.KA = self.KA.saturating_add(1),
+            Kind::HI => self.HI = self.HI.saturating_add(1),
             _ => unreachable!(),
         }
     }
@@ -344,6 +350,27 @@ fn normalize_initial(jkf: &mut JsonKifuFormat) -> Result<(), NormalizeError> {
             },
             _ => *initial,
         };
+        // A KIF hand count is spelled in kanji and the writer stops at 九十九, which is
+        // also the most SFEN carries in one token. Reject a larger count here, where it
+        // can be reported: the writers return `fmt::Result` and cannot say which piece
+        // they could not write.
+        if let Some(data) = &initial.data {
+            for hand in &data.hands {
+                for (kind, num) in [
+                    (Kind::FU, hand.FU),
+                    (Kind::KY, hand.KY),
+                    (Kind::KE, hand.KE),
+                    (Kind::GI, hand.GI),
+                    (Kind::KI, hand.KI),
+                    (Kind::KA, hand.KA),
+                    (Kind::HI, hand.HI),
+                ] {
+                    if num > MAX_HAND_COUNT {
+                        return Err(NormalizeError::HandCountOutOfRange(kind, num));
+                    }
+                }
+            }
+        }
     }
     Ok(())
 }

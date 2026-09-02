@@ -1,4 +1,5 @@
 use crate::jkf::*;
+use crate::normalizer::MAX_HAND_COUNT;
 use std::collections::HashMap;
 use std::fmt::{Result, Write};
 
@@ -10,18 +11,16 @@ pub(super) fn write_sanyou_suji<W: Write>(num: u8, sink: &mut W) -> Result {
     Ok(())
 }
 
-/// Ranks are always 1..=9, but a hand count is only bounded by `u8`: a `Position`
-/// converted from SFEN can hold any number of a piece, so spell the whole range.
-/// Writes nothing for 0, which no caller reaches.
+/// Ranks are always 1..=9, but a hand count runs up to [`MAX_HAND_COUNT`], so spell the
+/// tens place too. Writes nothing for 0, which no caller reaches.
+///
+/// `normalize` rejects a larger count, so the clamp below only bites on a hand-built
+/// value: this returns `fmt::Result` and has no way to say which piece it could not
+/// write, so it must not panic either.
 pub(super) fn write_kansuji<W: Write>(num: u8, sink: &mut W) -> Result {
-    let (hundreds, rest) = (num / 100, num % 100);
-    if hundreds > 0 {
-        if hundreds > 1 {
-            sink.write_char(KANSUJI[hundreds as usize - 1])?;
-        }
-        sink.write_char('百')?;
-    }
-    let (tens, ones) = (rest / 10, rest % 10);
+    debug_assert!(num <= MAX_HAND_COUNT);
+    let num = num.min(MAX_HAND_COUNT);
+    let (tens, ones) = (num / 10, num % 10);
     if tens > 0 {
         if tens > 1 {
             sink.write_char(KANSUJI[tens as usize - 1])?;
@@ -226,8 +225,7 @@ mod tests {
         #[rustfmt::skip]
         let cases = [
             (1, "一"), (9, "九"), (10, "十"), (11, "十一"), (18, "十八"), (19, "十九"),
-            (20, "二十"), (21, "二十一"), (30, "三十"), (99, "九十九"),
-            (100, "百"), (101, "百一"), (110, "百十"), (200, "二百"), (255, "二百五十五"),
+            (20, "二十"), (21, "二十一"), (30, "三十"), (90, "九十"), (99, "九十九"),
         ];
         for (num, expected) in cases {
             let mut s = String::new();
@@ -238,15 +236,15 @@ mod tests {
 
     #[test]
     fn hand_with_a_large_count() {
-        // `Hand` counts are `u8`, and a `Position` built from SFEN can hold any number
-        // of a piece, so the writer has to survive counts a legal game cannot reach.
+        // `Hand` counts are `u8`, and a `Position` built from SFEN can hold more of a
+        // piece than a legal game ever does, up to the bound `normalize` enforces.
         let hand = Hand {
-            FU: 100,
+            FU: MAX_HAND_COUNT,
             HI: 20,
             ..Hand::default()
         };
         let mut s = String::new();
         write_hand(&hand, &mut s).expect("writing to a String cannot fail");
-        assert_eq!(s, "飛二十　歩百　");
+        assert_eq!(s, "飛二十　歩九十九　");
     }
 }

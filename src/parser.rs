@@ -292,6 +292,60 @@ mod tests {
     }
 
     #[test]
+    fn kif_hand_counts_round_trip() {
+        use crate::converter::ToKif;
+        use crate::error::NormalizeError;
+        use crate::jkf::*;
+        use crate::normalizer::MAX_HAND_COUNT;
+
+        let mut board = [[Piece::default(); 9]; 9];
+        board[4][0] = Piece {
+            color: Some(Color::White),
+            kind: Some(Kind::OU),
+        };
+        board[4][8] = Piece {
+            color: Some(Color::Black),
+            kind: Some(Kind::OU),
+        };
+        let with_pawns = |n: u8| JsonKifuFormat {
+            header: Default::default(),
+            initial: Some(Initial {
+                preset: Preset::PresetOther,
+                data: Some(StateFormat {
+                    color: Color::Black,
+                    board,
+                    hands: [
+                        Hand {
+                            FU: n,
+                            ..Hand::default()
+                        },
+                        Hand::default(),
+                    ],
+                }),
+            }),
+            moves: vec![MoveFormat::default()],
+        };
+
+        // The counts from the issue, plus the bound. 19 and above used to render as
+        // something the parser could not read: the hands line fell through to
+        // `information_line_keyvalue` and the hand was lost without an error.
+        for n in [18, 19, 20, 21, MAX_HAND_COUNT] {
+            let kif = with_pawns(n).to_kif_owned();
+            let back = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{n}: {e}"));
+            let data = back.initial.and_then(|i| i.data).expect("initial data");
+            assert_eq!(data.hands[0].FU, n, "{n}");
+        }
+
+        // Past that a kifu has no notation for the count, so it is an error naming the
+        // piece rather than output this crate cannot read back.
+        let mut jkf = with_pawns(MAX_HAND_COUNT + 1);
+        assert_eq!(
+            jkf.normalize(),
+            Err(NormalizeError::HandCountOutOfRange(Kind::FU, 100))
+        );
+    }
+
+    #[test]
     fn csa_to_jkf() -> Result<()> {
         let dir = Path::new("data/tests/csa");
         for entry in dir.read_dir()? {

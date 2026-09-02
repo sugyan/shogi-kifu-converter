@@ -2,7 +2,7 @@ use crate::jkf::*;
 use nom::branch::alt;
 use nom::bytes::complete::{is_not, tag};
 use nom::character::complete::{line_ending, none_of, not_line_ending, one_of};
-use nom::combinator::{map, map_res, opt, value};
+use nom::combinator::{map, map_res, opt, value, verify};
 use nom::error::VerboseError;
 use nom::multi::{count, many0, many1};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
@@ -41,15 +41,16 @@ impl InformationData {
             Self::merged_hand(lhs[1], rhs[1]),
         ]
     }
+    // A record can carry a hands line both before and after the board, so these add up.
     fn merged_hand(lhs: Hand, rhs: Hand) -> Hand {
         Hand {
-            FU: lhs.FU + rhs.FU,
-            KY: lhs.KY + rhs.KY,
-            KE: lhs.KE + rhs.KE,
-            GI: lhs.GI + rhs.GI,
-            KI: lhs.KI + rhs.KI,
-            KA: lhs.KA + rhs.KA,
-            HI: lhs.HI + rhs.HI,
+            FU: lhs.FU.saturating_add(rhs.FU),
+            KY: lhs.KY.saturating_add(rhs.KY),
+            KE: lhs.KE.saturating_add(rhs.KE),
+            GI: lhs.GI.saturating_add(rhs.GI),
+            KI: lhs.KI.saturating_add(rhs.KI),
+            KA: lhs.KA.saturating_add(rhs.KA),
+            HI: lhs.HI.saturating_add(rhs.HI),
         }
     }
 }
@@ -96,27 +97,36 @@ pub(super) fn piece_kind(input: &str) -> IResult<&str, Kind, VerboseError<&str>>
     ))(input)
 }
 
-fn kansuji(input: &str) -> IResult<&str, u8, VerboseError<&str>> {
+fn kansuji_digit(input: &str) -> IResult<&str, u8, VerboseError<&str>> {
     alt((
-        value(18, tag("十八")),
-        value(17, tag("十七")),
-        value(16, tag("十六")),
-        value(15, tag("十五")),
-        value(14, tag("十四")),
-        value(13, tag("十三")),
-        value(12, tag("十二")),
-        value(11, tag("十一")),
-        value(10, tag("十")),
-        value(9, tag("九")),
-        value(8, tag("八")),
-        value(7, tag("七")),
-        value(6, tag("六")),
-        value(5, tag("五")),
-        value(4, tag("四")),
-        value(3, tag("三")),
-        value(2, tag("二")),
         value(1, tag("一")),
+        value(2, tag("二")),
+        value(3, tag("三")),
+        value(4, tag("四")),
+        value(5, tag("五")),
+        value(6, tag("六")),
+        value(7, tag("七")),
+        value(8, tag("八")),
+        value(9, tag("九")),
     ))(input)
+}
+
+// Reads a hand count, 一 through 九十九. The upper bound matches what SFEN can carry in
+// one token, which is also what the writer is allowed to emit.
+//
+// Never matches the empty string: the caller reads this through `opt` and takes the
+// absence of a count to mean one piece.
+fn kansuji(input: &str) -> IResult<&str, u8, VerboseError<&str>> {
+    verify(
+        map(
+            pair(
+                opt(terminated(opt(kansuji_digit), tag("十"))),
+                opt(kansuji_digit),
+            ),
+            |(tens, ones)| tens.map_or(0, |d| d.unwrap_or(1) * 10) + ones.unwrap_or_default(),
+        ),
+        |&n| n > 0,
+    )(input)
 }
 
 fn information_value_hand(input: &str) -> IResult<&str, Hand, VerboseError<&str>> {
@@ -129,16 +139,19 @@ fn information_value_hand(input: &str) -> IResult<&str, Hand, VerboseError<&str>
             )),
             |v| {
                 v.iter().try_fold(Hand::default(), |mut acc, &(k, n)| {
-                    match k {
-                        Kind::FU => acc.FU += n,
-                        Kind::KY => acc.KY += n,
-                        Kind::KE => acc.KE += n,
-                        Kind::GI => acc.GI += n,
-                        Kind::KI => acc.KI += n,
-                        Kind::KA => acc.KA += n,
-                        Kind::HI => acc.HI += n,
+                    // One piece kind can be listed more than once, so the counts add up
+                    // and can leave the range a `u8` holds.
+                    let slot = match k {
+                        Kind::FU => &mut acc.FU,
+                        Kind::KY => &mut acc.KY,
+                        Kind::KE => &mut acc.KE,
+                        Kind::GI => &mut acc.GI,
+                        Kind::KI => &mut acc.KI,
+                        Kind::KA => &mut acc.KA,
+                        Kind::HI => &mut acc.HI,
                         _ => return Err(()),
-                    }
+                    };
+                    *slot = slot.checked_add(n).ok_or(())?;
                     Ok(acc)
                 })
             },
@@ -327,17 +340,7 @@ fn place_x(input: &str) -> IResult<&str, u8, VerboseError<&str>> {
 }
 
 fn place_y(input: &str) -> IResult<&str, u8, VerboseError<&str>> {
-    alt((
-        value(1, tag("一")),
-        value(2, tag("二")),
-        value(3, tag("三")),
-        value(4, tag("四")),
-        value(5, tag("五")),
-        value(6, tag("六")),
-        value(7, tag("七")),
-        value(8, tag("八")),
-        value(9, tag("九")),
-    ))(input)
+    kansuji_digit(input)
 }
 
 pub(super) fn move_to(input: &str) -> IResult<&str, Option<PlaceFormat>, VerboseError<&str>> {
@@ -417,6 +420,39 @@ mod tests {
             Ok(("", Information::Preset(Preset::PresetOther))),
             information_line_preset("手合割：その他\n")
         );
+    }
+
+    #[test]
+    fn parse_kansuji() {
+        // The writer spells a hand count up to 九十九; the reader used to stop at 十八,
+        // so anything above that fell through to `information_line_keyvalue` and the
+        // hand was silently lost.
+        #[rustfmt::skip]
+        let cases = [
+            ("一", 1), ("九", 9), ("十", 10), ("十一", 11), ("十八", 18), ("十九", 19),
+            ("二十", 20), ("二十一", 21), ("三十", 30), ("九十", 90), ("九十九", 99),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(kansuji(input), Ok(("", expected)), "{input}");
+        }
+        // Not a count: 百 is past what SFEN carries in one token, and the empty string
+        // must not match at all — the caller reads this through `opt` and takes a
+        // missing count to mean one piece.
+        assert!(kansuji("百").is_err());
+        assert!(kansuji("").is_err());
+        assert_eq!(
+            Ok((
+                "",
+                Information::HandBlack(Hand {
+                    FU: 1,
+                    HI: 99,
+                    ..Default::default()
+                })
+            )),
+            information_line_hands("先手の持駒：飛九十九　歩　\n")
+        );
+        // Repeating a kind adds the counts up, which can leave the range of a `u8`.
+        assert!(information_line_hands("先手の持駒：歩九十九歩九十九歩九十九\n").is_err());
     }
 
     #[test]
