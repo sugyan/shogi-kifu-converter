@@ -1,21 +1,35 @@
 use crate::jkf::*;
+use crate::normalizer::MAX_HAND_COUNT;
 use std::collections::HashMap;
 use std::fmt::{Result, Write};
 
 const SANYOU_SUJI: [char; 9] = ['１', '２', '３', '４', '５', '６', '７', '８', '９'];
-const KANSUJI: [char; 10] = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+const KANSUJI: [char; 9] = ['一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
 pub(super) fn write_sanyou_suji<W: Write>(num: u8, sink: &mut W) -> Result {
     sink.write_char(SANYOU_SUJI[num as usize - 1])?;
     Ok(())
 }
 
-pub(super) fn write_kansuji<W: Write>(mut num: u8, sink: &mut W) -> Result {
-    if num > 10 {
+/// Ranks are always 1..=9, but a hand count runs up to [`MAX_HAND_COUNT`], so spell the
+/// tens place too. Writes nothing for 0, which no caller reaches.
+///
+/// `normalize` rejects a larger count, so the clamp below only bites on a hand-built
+/// value: this returns `fmt::Result` and has no way to say which piece it could not
+/// write, so it must not panic either.
+pub(super) fn write_kansuji<W: Write>(num: u8, sink: &mut W) -> Result {
+    debug_assert!(num <= MAX_HAND_COUNT);
+    let num = num.min(MAX_HAND_COUNT);
+    let (tens, ones) = (num / 10, num % 10);
+    if tens > 0 {
+        if tens > 1 {
+            sink.write_char(KANSUJI[tens as usize - 1])?;
+        }
         sink.write_char('十')?;
-        num -= 10;
     }
-    sink.write_char(KANSUJI[num as usize - 1])?;
+    if ones > 0 {
+        sink.write_char(KANSUJI[ones as usize - 1])?;
+    }
     Ok(())
 }
 
@@ -97,6 +111,11 @@ fn write_initial_data<W: Write>(data: &StateFormat, sink: &mut W) -> Result {
         sink.write_str("なし")?;
     }
     sink.write_char('\n')?;
+    // Readers take the absence of this line as Black to move, so it is only written
+    // when it says something.
+    if data.color == Color::White {
+        sink.write_str("後手番\n")?;
+    }
     Ok(())
 }
 
@@ -110,22 +129,44 @@ fn write_initial_preset<W: Write>(preset: Preset, sink: &mut W) -> Result {
         Preset::PresetHI => sink.write_str("飛車落ち")?,
         Preset::PresetHIKY => sink.write_str("飛香落ち")?,
         Preset::Preset2 => sink.write_str("二枚落ち")?,
+        Preset::Preset3 => sink.write_str("三枚落ち")?,
         Preset::Preset4 => sink.write_str("四枚落ち")?,
+        Preset::Preset5 => sink.write_str("五枚落ち")?,
+        Preset::Preset5L => sink.write_str("左五枚落ち")?,
         Preset::Preset6 => sink.write_str("六枚落ち")?,
+        Preset::Preset7L => sink.write_str("左七枚落ち")?,
+        Preset::Preset7R => sink.write_str("右七枚落ち")?,
         Preset::Preset8 => sink.write_str("八枚落ち")?,
         Preset::Preset10 => sink.write_str("十枚落ち")?,
-        _ => unimplemented!(),
+        Preset::PresetOther => sink.write_str("その他")?,
     }
     sink.write_char('\n')?;
     Ok(())
 }
 
+/// The order KIF files conventionally lead with. `JsonKifuFormat::header` is a
+/// `HashMap`, so iterating it directly renders the same record differently between
+/// runs; anything not listed here follows in key order.
+#[rustfmt::skip]
+const HEADER_ORDER: [&str; 12] = [
+    "開始日時", "終了日時", "表題", "棋戦", "戦型", "持ち時間",
+    "秒読み", "場所", "先手", "下手", "後手", "上手",
+];
+
 pub(super) fn write_header<W: Write>(header: &HashMap<String, String>, sink: &mut W) -> Result {
-    for (k, v) in header {
-        sink.write_str(k)?;
-        sink.write_char('：')?;
-        sink.write_str(v)?;
-        sink.write_char('\n')?;
+    let mut rest = header
+        .keys()
+        .map(String::as_str)
+        .filter(|k| !HEADER_ORDER.contains(k))
+        .collect::<Vec<_>>();
+    rest.sort_unstable();
+    for k in HEADER_ORDER.into_iter().chain(rest) {
+        if let Some(v) = header.get(k) {
+            sink.write_str(k)?;
+            sink.write_char('：')?;
+            sink.write_str(v)?;
+            sink.write_char('\n')?;
+        }
     }
     Ok(())
 }
@@ -146,4 +187,64 @@ pub(super) fn write_initial<W: Write>(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn header_order_is_stable() {
+        // `header` is a `HashMap`, so iterating it directly gave a different line order
+        // per run: the same record did not render byte-identically twice.
+        let expected = "\
+開始日時：2022/07/29
+棋戦：テスト
+先手：Sente
+後手：Gote
+備考：ノート
+";
+        // Fresh maps, since the iteration order is seeded per instance.
+        for _ in 0..16 {
+            let header = HashMap::from([
+                (String::from("後手"), String::from("Gote")),
+                (String::from("備考"), String::from("ノート")),
+                (String::from("先手"), String::from("Sente")),
+                (String::from("棋戦"), String::from("テスト")),
+                (String::from("開始日時"), String::from("2022/07/29")),
+            ]);
+            let mut s = String::new();
+            write_header(&header, &mut s).expect("writing to a String cannot fail");
+            assert_eq!(s, expected);
+        }
+    }
+
+    #[test]
+    fn kansuji() {
+        // 1..=19 are unchanged; 20 used to come out as 十十 and 21 and above panicked.
+        #[rustfmt::skip]
+        let cases = [
+            (1, "一"), (9, "九"), (10, "十"), (11, "十一"), (18, "十八"), (19, "十九"),
+            (20, "二十"), (21, "二十一"), (30, "三十"), (90, "九十"), (99, "九十九"),
+        ];
+        for (num, expected) in cases {
+            let mut s = String::new();
+            write_kansuji(num, &mut s).expect("writing to a String cannot fail");
+            assert_eq!(s, expected, "{num}");
+        }
+    }
+
+    #[test]
+    fn hand_with_a_large_count() {
+        // `Hand` counts are `u8`, and a `Position` built from SFEN can hold more of a
+        // piece than a legal game ever does, up to the bound `normalize` enforces.
+        let hand = Hand {
+            FU: MAX_HAND_COUNT,
+            HI: 20,
+            ..Hand::default()
+        };
+        let mut s = String::new();
+        write_hand(&hand, &mut s).expect("writing to a String cannot fail");
+        assert_eq!(s, "飛二十　歩九十九　");
+    }
 }

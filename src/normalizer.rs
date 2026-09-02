@@ -4,6 +4,10 @@ use shogi_core::{LegalityChecker, PartialPosition};
 use shogi_legality_lite::LiteLegalityChecker;
 use shogi_official_kifu::display_single_move_kansuji;
 
+/// The largest hand count a kifu can carry: KIF spells it in kanji and stops at 九十九,
+/// and SFEN takes at most two digits in one token. `normalize` rejects anything larger.
+pub(crate) const MAX_HAND_COUNT: u8 = 99;
+
 pub(crate) const HIRATE_BOARD: [[Piece; 9]; 9] = {
     #[rustfmt::skip]
     const EMP: Piece = Piece { color: None, kind: None };
@@ -200,27 +204,31 @@ impl Hand {
             HI: 0,
         }
     }
+    // Driven by a record's own piece list, which is not bounded by the rules, so this
+    // saturates for the same reason `decrement` does.
     pub(crate) fn increment(&mut self, kind: Kind) {
         match kind {
-            Kind::FU => self.FU += 1,
-            Kind::KY => self.KY += 1,
-            Kind::KE => self.KE += 1,
-            Kind::GI => self.GI += 1,
-            Kind::KI => self.KI += 1,
-            Kind::KA => self.KA += 1,
-            Kind::HI => self.HI += 1,
+            Kind::FU => self.FU = self.FU.saturating_add(1),
+            Kind::KY => self.KY = self.KY.saturating_add(1),
+            Kind::KE => self.KE = self.KE.saturating_add(1),
+            Kind::GI => self.GI = self.GI.saturating_add(1),
+            Kind::KI => self.KI = self.KI.saturating_add(1),
+            Kind::KA => self.KA = self.KA.saturating_add(1),
+            Kind::HI => self.HI = self.HI.saturating_add(1),
             _ => unreachable!(),
         }
     }
+    // Used to work out what `AL` stands for by subtracting the board from a full set,
+    // so a record with more of a kind than the standard set must not overflow.
     pub(crate) fn decrement(&mut self, kind: Kind) {
         match kind {
-            Kind::FU => self.FU -= 1,
-            Kind::KY => self.KY -= 1,
-            Kind::KE => self.KE -= 1,
-            Kind::GI => self.GI -= 1,
-            Kind::KI => self.KI -= 1,
-            Kind::KA => self.KA -= 1,
-            Kind::HI => self.HI -= 1,
+            Kind::FU => self.FU = self.FU.saturating_sub(1),
+            Kind::KY => self.KY = self.KY.saturating_sub(1),
+            Kind::KE => self.KE = self.KE.saturating_sub(1),
+            Kind::GI => self.GI = self.GI.saturating_sub(1),
+            Kind::KI => self.KI = self.KI.saturating_sub(1),
+            Kind::KA => self.KA = self.KA.saturating_sub(1),
+            Kind::HI => self.HI = self.HI.saturating_sub(1),
             _ => unreachable!(),
         }
     }
@@ -262,22 +270,6 @@ impl JsonKifuFormat {
     pub fn normalize(&mut self) -> Result<(), NormalizeError> {
         normalize_initial(self)?;
         let pos = if let Some(initial) = &self.initial {
-            if !matches!(initial.preset, Preset::PresetHirate | Preset::PresetOther)
-                && self
-                    .moves
-                    .get(1)
-                    .and_then(|mf| mf.move_.map(|mmf| mmf.color == Color::Black))
-                    .unwrap_or_default()
-            {
-                for mv in self.moves[1..].iter_mut() {
-                    if let Some(mmf) = &mut mv.move_ {
-                        mmf.color = match mmf.color {
-                            Color::Black => Color::White,
-                            Color::White => Color::Black,
-                        };
-                    }
-                }
-            }
             match PartialPosition::try_from(initial) {
                 Ok(pos) => pos,
                 Err(err) => return Err(NormalizeError::Convert(err.to_string())),
@@ -285,8 +277,44 @@ impl JsonKifuFormat {
         } else {
             PartialPosition::startpos()
         };
-        normalize_moves(&mut self.moves[1..], pos, [TimeFormat::default(); 2])?;
+        // KIF and KI2 have no colour on a move line and assign it from the ply's
+        // parity, taking Black to move first. When the initial position says
+        // otherwise every colour is inverted. This covers the handicap presets, which
+        // are always White to move, and a board diagram carrying a `後手番` line.
+        if pos.side_to_move() == shogi_core::Color::White
+            && self
+                .moves
+                .get(1)
+                .and_then(|mf| mf.move_.map(|mmf| mmf.color == Color::Black))
+                .unwrap_or_default()
+        {
+            invert_colors(self.moves.get_mut(1..).unwrap_or_default());
+        }
+        // `moves` may legitimately be empty: the JKF schema puts no lower bound on it,
+        // and only `moves[0]` (the initial position's comment slot) would be missing.
+        let moves = self.moves.get_mut(1..).unwrap_or_default();
+        normalize_moves(moves, pos, [TimeFormat::default(); 2])?;
         Ok(())
+    }
+}
+
+// A fork replaces a move of the main line, so its plies carry the same numbers and the
+// parser gave them colours from the same parity. Inverting has to reach them too, or
+// `normalize_moves` walks into a fork whose colours disagree with the position and
+// `normalize_move` rejects the whole record.
+fn invert_colors(moves: &mut [MoveFormat]) {
+    for mf in moves {
+        if let Some(mmf) = &mut mf.move_ {
+            mmf.color = match mmf.color {
+                Color::Black => Color::White,
+                Color::White => Color::Black,
+            };
+        }
+        if let Some(forks) = &mut mf.forks {
+            for fork in forks.iter_mut() {
+                invert_colors(fork);
+            }
+        }
     }
 }
 
@@ -335,6 +363,27 @@ fn normalize_initial(jkf: &mut JsonKifuFormat) -> Result<(), NormalizeError> {
             },
             _ => *initial,
         };
+        // A KIF hand count is spelled in kanji and the writer stops at 九十九, which is
+        // also the most SFEN carries in one token. Reject a larger count here, where it
+        // can be reported: the writers return `fmt::Result` and cannot say which piece
+        // they could not write.
+        if let Some(data) = &initial.data {
+            for hand in &data.hands {
+                for (kind, num) in [
+                    (Kind::FU, hand.FU),
+                    (Kind::KY, hand.KY),
+                    (Kind::KE, hand.KE),
+                    (Kind::GI, hand.GI),
+                    (Kind::KI, hand.KI),
+                    (Kind::KA, hand.KA),
+                    (Kind::HI, hand.HI),
+                ] {
+                    if num > MAX_HAND_COUNT {
+                        return Err(NormalizeError::HandCountOutOfRange(kind, num));
+                    }
+                }
+            }
+        }
     }
     Ok(())
 }
