@@ -412,6 +412,99 @@ mod tests {
     }
 
     #[test]
+    fn write_then_parse_round_trips_the_corpus() -> Result<()> {
+        use crate::converter::{ToCsa, ToKi2, ToKif};
+        use crate::jkf::{Color, Initial, Kind};
+
+        // Every other fixture test stops at input -> JKF; nothing checked that the
+        // writers emit something these parsers can read. That is the property #20 and
+        // #21 touch, and 0.2.2 did not have it: its own `csa2kif` output for a
+        // White-to-move board diagram was rejected by its own parser.
+        //
+        // KI2 carries no from-square and no times, so compare the initial position and
+        // the part of each move every format does carry.
+        // (color, piece, to.x, to.y, promote)
+        type MoveEssence = (Color, Kind, u8, u8, Option<bool>);
+        fn essence(jkf: &JsonKifuFormat) -> (Option<Initial>, Vec<MoveEssence>) {
+            (
+                jkf.initial,
+                jkf.moves
+                    .iter()
+                    .filter_map(|mf| mf.move_)
+                    .map(|m| (m.color, m.piece, m.to.x, m.to.y, m.promote))
+                    .collect(),
+            )
+        }
+
+        for (dir, ext) in [
+            ("data/tests/csa", "csa"),
+            ("data/tests/kif", "kif"),
+            ("data/tests/ki2", "ki2"),
+        ] {
+            for entry in Path::new(dir).read_dir()? {
+                let path = entry?.path();
+                if path.extension() != Some(OsStr::new(ext)) {
+                    continue;
+                }
+                let original = match ext {
+                    "csa" => parse_csa_file(&path),
+                    "kif" => parse_kif_file(&path),
+                    _ => parse_ki2_file(&path),
+                }
+                .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+                let text = match ext {
+                    "csa" => original.to_csa_owned(),
+                    "kif" => original.to_kif_owned(),
+                    _ => original.to_ki2_owned(),
+                };
+                let reparsed = match ext {
+                    "csa" => parse_csa_str(&text),
+                    "kif" => parse_kif_str(&text),
+                    _ => parse_ki2_str(&text),
+                }
+                .unwrap_or_else(|e| panic!("{}: reading our own output back: {e}", path.display()));
+                assert_eq!(essence(&original), essence(&reparsed), "{}", path.display());
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn ki2_initial_side_to_move() {
+        use crate::converter::ToKi2;
+        use crate::jkf::*;
+
+        // `write_initial_data` and `informations` are shared, so #20's 後手番 line and the
+        // hands rule it sits next to are on the KI2 path too — which had no coverage.
+        let mut board = [[Piece::default(); 9]; 9];
+        board[4][0] = Piece {
+            color: Some(Color::White),
+            kind: Some(Kind::OU),
+        };
+        board[4][8] = Piece {
+            color: Some(Color::Black),
+            kind: Some(Kind::OU),
+        };
+        let jkf = JsonKifuFormat {
+            header: Default::default(),
+            initial: Some(Initial {
+                preset: Preset::PresetOther,
+                data: Some(StateFormat {
+                    color: Color::White,
+                    board,
+                    hands: [Hand::default(); 2],
+                }),
+            }),
+            moves: vec![MoveFormat::default()],
+        };
+        let ki2 = jkf.to_ki2_owned();
+        assert!(ki2.contains("後手番\n"), "{ki2}");
+        let back = parse_ki2_str(&ki2).expect("should parse");
+        let data = back.initial.and_then(|i| i.data).expect("initial data");
+        assert_eq!(data.color, Color::White);
+    }
+
+    #[test]
     fn csa_to_jkf() -> Result<()> {
         let dir = Path::new("data/tests/csa");
         for entry in dir.read_dir()? {
