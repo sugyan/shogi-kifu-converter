@@ -2,7 +2,7 @@ use crate::jkf::*;
 use nom::branch::alt;
 use nom::bytes::complete::{is_not, tag};
 use nom::character::complete::{line_ending, none_of, not_line_ending, one_of};
-use nom::combinator::{cut, map, map_res, opt, value, verify};
+use nom::combinator::{cut, map, map_res, opt, success, value, verify};
 use nom::error::VerboseError;
 use nom::multi::{count, many0, many1};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
@@ -156,6 +156,9 @@ fn information_value_hand(input: &str) -> IResult<&str, Hand, VerboseError<&str>
                 })
             },
         ),
+        // An empty value is an empty hand. 0.2.2 read `先手の持駒：` that way (by way of
+        // the key-value rule) and nothing is lost by keeping it.
+        success(Hand::default()),
     ))(input)
 }
 
@@ -214,7 +217,14 @@ fn information_line_hands(input: &str) -> IResult<&str, Information, VerboseErro
             // which matches anything with a `：` and would quietly turn the hand into a
             // header entry. The `line_ending` is inside the `cut` for the same reason:
             // trailing junk after a readable hand would otherwise take that route too.
-            cut(terminated(information_value_hand, line_ending)),
+            // `information_value_preset` and `information_line_color` both tolerate the
+            // trailing 全角 padding Kifu for Windows writes after an information value
+            // (`手合割：平手　　` in data/tests/kif/everyday_20220604.kifu); the hand value
+            // has to as well, or committing here would reject a file 0.2.2 read fine.
+            cut(terminated(
+                information_value_hand,
+                preceded(many0(one_of(" 　")), line_ending),
+            )),
         ),
         |(c, h)| match c {
             Color::Black => Information::HandBlack(h),
@@ -454,17 +464,49 @@ mod tests {
         // `information_line_keyvalue` matches anything with a `：`, so a hands line the
         // parser could not read used to end up as `header["先手の持駒"]` with the hand
         // silently gone. Past the key the line now has to be a hand.
-        assert!(information_line_hands("先手の持駒：歩百　\n").is_err());
-        // ... including trailing junk after a hand that does read.
-        assert!(information_line_hands("先手の持駒：歩　x\n").is_err());
-
-        // Readable hands are unaffected.
+        //
+        // `Failure`, not `Error`: that is what stops `alt` from falling through. `is_err()`
+        // cannot tell the two apart, so it would pass with or without the `cut`.
         for line in [
-            "先手の持駒：なし\n",
-            "先手の持駒：金　桂　\n",
-            "後手の持駒：歩九十九　\n",
+            "先手の持駒：歩百　\n", // a count the format cannot spell
+            "先手の持駒：歩　x\n",  // trailing junk after a hand that does read
+            "先手の持駒：玉\n",     // a piece that cannot be in hand
         ] {
-            assert!(information_line_hands(line).is_ok(), "{line}");
+            assert!(
+                matches!(information_line_hands(line), Err(nom::Err::Failure(_))),
+                "{line}"
+            );
+        }
+
+        // Readable hands are unaffected — including the trailing 全角 padding real
+        // producers write after an information value, and an empty value, both of which
+        // lose nothing and both of which 0.2.2 accepted.
+        for (line, expected) in [
+            ("先手の持駒：なし\n", Hand::default()),
+            ("先手の持駒：なし　\n", Hand::default()),
+            ("先手の持駒：なし \n", Hand::default()),
+            ("先手の持駒：\n", Hand::default()),
+            (
+                "先手の持駒：金　桂　\n",
+                Hand {
+                    KE: 1,
+                    KI: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                "先手の持駒：歩九十九　\n",
+                Hand {
+                    FU: 99,
+                    ..Default::default()
+                },
+            ),
+        ] {
+            assert_eq!(
+                information_line_hands(line),
+                Ok(("", Information::HandBlack(expected))),
+                "{line}"
+            );
         }
 
         // The commit point is after `の持駒：`, so an ordinary header line starting with
