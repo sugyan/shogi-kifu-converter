@@ -24,7 +24,7 @@ impl ToCsa for JsonKifuFormat {
     fn to_csa<W: Write>(&self, sink: &mut W) -> Result {
         write_header(&self.header, sink)?;
         write_initial(&self.initial, sink)?;
-        write_moves(&self.moves[1..], sink)?;
+        write_moves(self.moves.get(1..).unwrap_or_default(), sink)?;
         Ok(())
     }
 }
@@ -139,11 +139,20 @@ fn write_initial_preset<W: Write>(preset: Preset, sink: &mut W) -> Result {
         Preset::PresetHI => sink.write_str("PI82HI")?,
         Preset::PresetHIKY => sink.write_str("PI82HI11KY")?,
         Preset::Preset2 => sink.write_str("PI82HI22KA")?,
+        Preset::Preset3 => sink.write_str("PI82HI22KA11KY")?,
         Preset::Preset4 => sink.write_str("PI82HI22KA91KY11KY")?,
+        Preset::Preset5 => sink.write_str("PI82HI22KA91KY11KY81KE")?,
+        Preset::Preset5L => sink.write_str("PI82HI22KA91KY11KY21KE")?,
         Preset::Preset6 => sink.write_str("PI82HI22KA91KY11KY81KE21KE")?,
+        Preset::Preset7L => sink.write_str("PI82HI22KA91KY11KY81KE21KE31GI")?,
+        Preset::Preset7R => sink.write_str("PI82HI22KA91KY11KY81KE21KE71GI")?,
         Preset::Preset8 => sink.write_str("PI82HI22KA91KY11KY81KE21KE71GI31GI")?,
         Preset::Preset10 => sink.write_str("PI82HI22KA91KY11KY81KE21KE71GI31GI61KI41KI")?,
-        _ => unimplemented!(),
+        // No parser produces this: `OTHER` without board data is rejected by
+        // `TryFrom<&jkf::Initial>` during `normalize`. `to_csa` does not run that
+        // check, though, so a hand-built value reaches here — and CSA has no notation
+        // for a handicap with no board to describe it.
+        Preset::PresetOther => unimplemented!("`PresetOther` requires initial board data"),
     }
     sink.write_char('\n')?;
     if preset == Preset::PresetHirate {

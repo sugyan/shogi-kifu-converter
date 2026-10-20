@@ -157,7 +157,7 @@ fn write_move_lines<W: Write>(moves: &[MoveFormat], index: usize, sink: &mut W) 
 
 fn write_moves<W: Write>(moves: &[MoveFormat], sink: &mut W) -> Result {
     sink.write_str("手数----指手---------消費時間--\n")?;
-    if let Some(comments) = &moves[0].comments {
+    if let Some(comments) = moves.first().and_then(|mf| mf.comments.as_ref()) {
         for comment in comments {
             if !comment.starts_with('&') {
                 sink.write_char('*')?;
@@ -166,7 +166,7 @@ fn write_moves<W: Write>(moves: &[MoveFormat], sink: &mut W) -> Result {
             sink.write_char('\n')?;
         }
     }
-    write_move_lines(&moves[1..], 1, sink)
+    write_move_lines(moves.get(1..).unwrap_or_default(), 1, sink)
 }
 
 #[cfg(test)]
@@ -190,8 +190,12 @@ mod tests {
         let path = Path::new("data/tests/kif/forks.json");
         let jkf = parse_jkf_file(&path).expect("failed to parse kif");
         let kif = jkf.to_kif_owned();
+        // The header is rendered in a fixed order, so it can be asserted too.
         assert_eq!(
             &r#"
+先手：
+後手：
+手合割：平手
 手数----指手---------消費時間--
    1 ７六歩(77)   ( 0:00/00:00:00)
    2 ８四歩(83)   ( 0:00/00:00:00)
@@ -232,7 +236,7 @@ mod tests {
   14 同　金(32)   ( 0:00/00:00:00)
   15 ７七銀(68)   ( 0:00/00:00:00)
 "#[1..],
-            kif.lines().skip(3).collect::<Vec<_>>().join("\n") + "\n"
+            kif
         );
     }
 }

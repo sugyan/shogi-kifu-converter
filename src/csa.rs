@@ -5,6 +5,23 @@ use csa::{GameRecord, Position};
 use std::collections::HashMap;
 use std::time::Duration;
 
+/// `csa::Square` is built from two bare digits with no range check, so a malformed
+/// record can name a square off the board. `(0, 0)` is the legal encoding for a piece
+/// in hand; anything else outside 1..=9 is rejected here rather than indexing a board.
+fn validate_squares(pos: &Position) -> Result<(), ParseError> {
+    let on_board = |sq: &csa::Square| (1..=9).contains(&sq.file) && (1..=9).contains(&sq.rank);
+    let in_hand = |sq: &csa::Square| sq.file == 0 && sq.rank == 0;
+    if pos
+        .add_pieces
+        .iter()
+        .any(|(_, sq, _)| !on_board(sq) && !in_hand(sq))
+        || pos.drop_pieces.iter().any(|(sq, _)| !on_board(sq))
+    {
+        return Err(ParseError::CsaConvert("square is off the board"));
+    }
+    Ok(())
+}
+
 impl TryFrom<GameRecord> for JsonKifuFormat {
     type Error = ParseError;
 
@@ -36,6 +53,7 @@ impl TryFrom<GameRecord> for JsonKifuFormat {
             header.insert(String::from("戦型"), s);
         }
         // Initial
+        validate_squares(&record.start_pos)?;
         let initial = Some(record.start_pos.into());
         // Moves
         let mut moves = vec![MoveFormat::default()];
@@ -48,6 +66,15 @@ impl TryFrom<GameRecord> for JsonKifuFormat {
             moves,
         })
     }
+}
+
+/// Off-board squares are rejected by [`validate_squares`] before this module builds a
+/// board, but this impl is reachable on its own, so it must not index out of range.
+fn square_mut(board: &mut [[Piece; 9]; 9], sq: csa::Square) -> Option<&mut Piece> {
+    let (file, rank) = (usize::from(sq.file), usize::from(sq.rank));
+    board
+        .get_mut(file.checked_sub(1)?)?
+        .get_mut(rank.checked_sub(1)?)
 }
 
 impl From<Position> for Initial {
@@ -91,14 +118,18 @@ impl From<Position> for Initial {
             // 平手初期配置と駒落ち
             let mut b = HIRATE_BOARD;
             for &(sq, _) in &pos.drop_pieces {
-                b[sq.file as usize - 1][sq.rank as usize - 1] = Piece::empty()
+                if let Some(p) = square_mut(&mut b, sq) {
+                    *p = Piece::empty();
+                }
             }
             b
         } else {
             // 駒別単独表現
             let mut b = [[Piece::empty(); 9]; 9];
             for &(c, sq, pt) in &pos.add_pieces {
-                b[sq.file as usize - 1][sq.rank as usize - 1] = Piece::from((c, pt));
+                if let Some(p) = square_mut(&mut b, sq) {
+                    *p = Piece::from((c, pt));
+                }
             }
             b
         };

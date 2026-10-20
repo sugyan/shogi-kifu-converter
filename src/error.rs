@@ -40,6 +40,9 @@ pub enum NormalizeError {
     /// Incorrect sequence of move colors
     #[error("Invalid color")]
     InvalidColor,
+    /// A hand holds more pieces of one kind than a kifu can express
+    #[error("Too many pieces in hand: {1} {0:?}")]
+    HandCountOutOfRange(crate::jkf::Kind, u8),
 }
 
 /// An error that can occur while parsing kifu data

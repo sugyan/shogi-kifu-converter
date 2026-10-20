@@ -116,12 +116,17 @@ impl TryFrom<&jkf::Initial> for PartialPosition {
                     PresetHI   => vec![Square::SQ_8B],
                     PresetHIKY => vec![Square::SQ_8B, Square::SQ_1A],
                     Preset2    => vec![Square::SQ_8B, Square::SQ_2B],
+                    Preset3    => vec![Square::SQ_8B, Square::SQ_2B, Square::SQ_1A],
                     Preset4    => vec![Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A],
+                    Preset5    => vec![Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A],
+                    Preset5L   => vec![Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_2A],
                     Preset6    => vec![Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A, Square::SQ_2A],
+                    Preset7L   => vec![Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A, Square::SQ_2A, Square::SQ_3A],
+                    Preset7R   => vec![Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A, Square::SQ_2A, Square::SQ_7A],
                     Preset8    => vec![Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A, Square::SQ_2A, Square::SQ_7A, Square::SQ_3A],
                     Preset10   => vec![Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A, Square::SQ_2A, Square::SQ_7A, Square::SQ_3A, Square::SQ_6A, Square::SQ_4A],
-                    // Preset3, Preset5, Preset7...?
-                    _ => unimplemented!(),
+                    // Both are taken by the outer `match`
+                    PresetHirate | PresetOther => unreachable!(),
                 };
                 for sq in drops {
                     pos.piece_set(sq, None);
@@ -156,6 +161,37 @@ impl TryFrom<&jkf::JsonKifuFormat> for Position {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn from_handicap_presets() {
+        // Every preset the KIF parser accepts must convert. The five that used to hit
+        // `unimplemented!()` are 3, 5, 5_L, 7_L and 7_R; the rest guard against
+        // regressions. Layouts follow json-kifu-format's reference implementation.
+        #[rustfmt::skip]
+        let cases = [
+            (jkf::Preset::PresetHirate, "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1"),
+            (jkf::Preset::PresetKY,     "lnsgkgsn1/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1"),
+            (jkf::Preset::PresetKYR,    "1nsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1"),
+            (jkf::Preset::PresetKA,     "lnsgkgsnl/1r7/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1"),
+            (jkf::Preset::PresetHI,     "lnsgkgsnl/7b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1"),
+            (jkf::Preset::PresetHIKY,   "lnsgkgsn1/7b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1"),
+            (jkf::Preset::Preset2,      "lnsgkgsnl/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1"),
+            (jkf::Preset::Preset3,      "lnsgkgsn1/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1"),
+            (jkf::Preset::Preset4,      "1nsgkgsn1/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1"),
+            (jkf::Preset::Preset5,      "2sgkgsn1/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1"),
+            (jkf::Preset::Preset5L,     "1nsgkgs2/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1"),
+            (jkf::Preset::Preset6,      "2sgkgs2/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1"),
+            (jkf::Preset::Preset7L,     "2sgkg3/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1"),
+            (jkf::Preset::Preset7R,     "3gkgs2/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1"),
+            (jkf::Preset::Preset8,      "3gkg3/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1"),
+            (jkf::Preset::Preset10,     "4k4/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1"),
+        ];
+        for (preset, sfen) in cases {
+            let initial = jkf::Initial { preset, data: None };
+            let pos = PartialPosition::try_from(&initial).expect("should convert");
+            assert_eq!(pos.to_sfen_owned(), sfen, "{preset:?}");
+        }
+    }
 
     #[test]
     fn from_default() {
