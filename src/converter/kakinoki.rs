@@ -26,7 +26,6 @@ pub(super) fn write_sanyou_suji<W: Write>(num: u8, sink: &mut W) -> Result {
 /// value: this returns `fmt::Result` and has no way to say which piece it could not
 /// write, so it must not panic either.
 pub(super) fn write_kansuji<W: Write>(num: u8, sink: &mut W) -> Result {
-    debug_assert!(num <= MAX_HAND_COUNT);
     let num = num.min(MAX_HAND_COUNT);
     let (tens, ones) = (num / 10, num % 10);
     if tens > 0 {
@@ -254,6 +253,15 @@ mod tests {
         let mut s = String::new();
         write_sanyou_suji(9, &mut s).expect("writing to a String cannot fail");
         assert_eq!(s, "９");
+    }
+
+    #[test]
+    fn kansuji_out_of_range() {
+        // The clamp is what a hand-built count or rank gets, in debug builds too: a debug
+        // assertion in front of it made the writers panic there.
+        let mut s = String::new();
+        write_kansuji(u8::MAX, &mut s).expect("writing to a String cannot fail");
+        assert_eq!(s, "九十九");
     }
 
     #[test]
