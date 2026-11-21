@@ -109,6 +109,7 @@ fn result_line(input: &str) -> IResult<&str, Option<MoveSpecial>, VerboseError<&
                 tuple((tag("で"), color_prefix, tag("の勝ち"))),
             ),
             value(MoveSpecial::SpecialChudan, tag("で中断")),
+            value(MoveSpecial::SpecialChudan, tag("で封じ手")),
             value(MoveSpecial::SpecialJishogi, tag("で持将棋")),
             value(MoveSpecial::SpecialSennichite, tag("で千日手")),
             value(MoveSpecial::SpecialFuzumi, tag("で不詰")),

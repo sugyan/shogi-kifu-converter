@@ -454,6 +454,21 @@ mod tests {
     }
 
     #[test]
+    fn sealed_move() {
+        use crate::converter::ToKif;
+        use crate::jkf::MoveSpecial::SpecialChudan;
+
+        // A record saved while the game is adjourned ends at the sealed move, and had no
+        // rule. json-kifu-format reads 封じ手 as CHUDAN, and so does this, so the KIF
+        // writer puts it back as 中断.
+        let head =
+            "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n   2 ３四歩(33)\n";
+        let jkf = parse_kif_str(&format!("{head}   3 封じ手\n")).expect("should parse");
+        assert_eq!(jkf.moves[3].special, Some(SpecialChudan));
+        assert_eq!(jkf.to_kif_owned(), format!("{head}   3 中断\n"));
+    }
+
+    #[test]
     fn kif_fouls_and_unsolved_mates() {
         use crate::converter::ToKif;
         use crate::jkf::MoveSpecial::*;
@@ -555,6 +570,7 @@ mod tests {
             ("まで2手で先手の反則負け", Some(SpecialIllegalMove)),
             ("まで2手で先手の入玉勝ち", Some(SpecialKachi)),
             ("まで2手で中断", Some(SpecialChudan)),
+            ("まで2手で封じ手", Some(SpecialChudan)),
             ("まで2手で持将棋", Some(SpecialJishogi)),
             ("まで2手で千日手", Some(SpecialSennichite)),
             ("まで2手で詰み", Some(SpecialTsumi)),

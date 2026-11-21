@@ -78,6 +78,9 @@ pub(super) fn special_word(input: &str) -> IResult<&str, MoveSpecial, VerboseErr
         value(MoveSpecial::SpecialKachi, tag("入玉勝ち")),
         value(MoveSpecial::SpecialTsumi, tag("詰み")),
         value(MoveSpecial::SpecialFuzumi, tag("不詰")),
+        // A sealed move: the game is adjourned. JKF has no special for it, and
+        // json-kifu-format reads it as CHUDAN too.
+        value(MoveSpecial::SpecialChudan, tag("封じ手")),
     ))(input)
 }
 
