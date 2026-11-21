@@ -444,6 +444,13 @@ mod tests {
             let moves = if tail.ends_with("(27)") { 4 } else { 3 };
             assert_eq!(jkf.moves.len(), moves, "{tail:?}");
         }
+        // A `まで…` line closes the record: a line after it, a comment or a bookmark
+        // included, is unread input.
+        for line in ["終局", "*コメント", "&しおり"] {
+            let kif = format!("{head}まで2手で中断\n{line}\n");
+            let err = parse_kif_str(&kif).expect_err(line);
+            assert!(matches!(err, ParseError::Kif(_)), "{line}: {err:?}");
+        }
     }
 
     #[test]
@@ -695,12 +702,26 @@ mod tests {
         assert_eq!(jkf.moves.len(), 3, "{written}");
         assert_eq!(jkf.moves[2].comments, comments(&["最終手", "投了図"]));
         // `floodgate.json` has that shape: an evaluation on its last move, and the game
-        // summary on its TORYO. All of it reads back but the TORYO, which the KI2 writer
-        // does not write.
+        // summary on its TORYO. The KI2 writer writes no special and KI2 has no times,
+        // so the TORYO is lost, but every comment reads back, the summary onto the last
+        // move.
         let jkf = parse_jkf_file("data/tests/csa/floodgate.json").expect("should parse");
         let written = jkf.to_ki2_owned();
         let reparsed = parse_ki2_str(&written).unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(reparsed.moves.len(), jkf.moves.len() - 1);
+        let all = |jkf: &JsonKifuFormat| {
+            jkf.moves
+                .iter()
+                .flat_map(|mf| mf.comments.iter().flatten().cloned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(all(&reparsed), all(&jkf));
+        let summary = jkf.moves.last().and_then(|mf| mf.comments.as_ref());
+        let last = reparsed.moves.last().and_then(|mf| mf.comments.as_ref());
+        assert!(
+            last.zip(summary).is_some_and(|(l, s)| l.ends_with(s)),
+            "{last:?}"
+        );
     }
 
     #[test]
@@ -747,6 +768,19 @@ mod tests {
                 String::from("手合割：香落ち\n△反則勝ち\n"),
                 2,
                 SpecialIllegalActionBlack,
+            ),
+            // Any KIF word is taken, 封じ手 included.
+            (format!("{opening} ▲封じ手\n"), 10, SpecialChudan),
+            // When the two disagree, the `まで…` line is read, whatever it says.
+            (
+                format!("{opening} ▲千日手\nまで8手で後手の勝ち"),
+                10,
+                SpecialToryo,
+            ),
+            (
+                format!("{opening} ▲７八玉 △反則勝ち\nまで9手で先手の反則勝ち"),
+                11,
+                SpecialIllegalActionWhite,
             ),
         ] {
             let jkf = parse_ki2_str(&ki2).unwrap_or_else(|e| panic!("{ki2}: {e}"));
