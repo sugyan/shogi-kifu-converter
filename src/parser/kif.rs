@@ -1,4 +1,6 @@
-use super::kakinoki::{move_comment_line, move_to, not_move_line, parse_without_moves, piece_kind};
+use super::kakinoki::{
+    move_comment_line, move_to, not_move_line, parse_without_moves, piece_kind, special_word,
+};
 use crate::jkf::*;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
@@ -26,26 +28,11 @@ fn move_from(input: &str) -> IResult<&str, Option<PlaceFormat>, VerboseError<&st
 }
 
 fn move_special(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
-    map(
-        alt((
-            value(MoveSpecial::SpecialToryo, tag("投了")),
-            value(MoveSpecial::SpecialChudan, tag("中断")),
-            value(MoveSpecial::SpecialSennichite, tag("千日手")),
-            value(MoveSpecial::SpecialTimeUp, tag("切れ負け")),
-            // A win for the side to move, on the other side's foul. Which side that is
-            // depends on the ply, so `move_line` settles it, as it does a move's colour.
-            value(MoveSpecial::SpecialIllegalActionWhite, tag("反則勝ち")),
-            value(MoveSpecial::SpecialIllegalMove, tag("反則負け")),
-            value(MoveSpecial::SpecialJishogi, tag("持将棋")),
-            value(MoveSpecial::SpecialKachi, tag("入玉勝ち")),
-            value(MoveSpecial::SpecialTsumi, tag("詰み")),
-            value(MoveSpecial::SpecialFuzumi, tag("不詰")),
-        )),
-        |special| MoveFormat {
-            special: Some(special),
-            ..Default::default()
-        },
-    )(input)
+    // 反則勝ち's side depends on the ply, so `move_line` settles it.
+    map(special_word, |special| MoveFormat {
+        special: Some(special),
+        ..Default::default()
+    })(input)
 }
 
 fn move_move(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {

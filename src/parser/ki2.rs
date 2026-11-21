@@ -1,4 +1,6 @@
-use super::kakinoki::{color_prefix, move_comment_line, move_to, parse_without_moves, piece_kind};
+use super::kakinoki::{
+    color_prefix, move_comment_line, move_to, parse_without_moves, piece_kind, special_word,
+};
 use crate::jkf::*;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
@@ -63,9 +65,20 @@ fn single_move(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
     )(input)
 }
 
+// Shogi DB2 writes how the game ended as one more move, in KIF's words (`… ▲７八玉 △投了`),
+// before the `まで…` line. Its mark need not be the side to move's (`△５五歩 △投了`), so
+// only the word is read.
+fn result_token(input: &str) -> IResult<&str, MoveSpecial, VerboseError<&str>> {
+    preceded(alt((tag("▲"), tag("△"))), special_word)(input)
+}
+
 // KI2 has no move line for how a game ended: the `まで…` line that closes the record says
 // it. A wording not listed here still closes the record, since the moves are all there,
 // but it gives no special.
+//
+// Each wording names the side Kifu for Windows and tsshogi name for it, and the name is
+// read only for 反則勝ち, where JKF needs to know whose foul it was. json-kifu-format and
+// tsshogi read the others without it too.
 fn result_line(input: &str) -> IResult<&str, Option<MoveSpecial>, VerboseError<&str>> {
     delimited(
         tuple((tag("まで"), digit1, tag("手"))),
@@ -110,23 +123,43 @@ fn moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
             preceded(many0(line_ending), opt(many1(move_comment_line))),
             // A blank line between moves does not end the game.
             many0(preceded(multispace0, single_move)),
+            opt(preceded(multispace0, result_token)),
             opt(preceded(multispace0, result_line)),
+            // tsshogi writes a special's comments after the `まで…` line, and this crate's
+            // writer leaves a blank line before them when the last move has its own.
+            opt(many1(preceded(multispace0, move_comment_line))),
         )),
-        |(comments, mut v, special)| {
-            if let Some(special) = special.flatten() {
+        |(comments, mut v, token, made, trailing)| {
+            // The `まで…` line names the winner, so it is read over the token. The token's
+            // 反則勝ち is a win for the side to move, on the foul of whoever moved last.
+            let special = made.flatten().or_else(|| match token? {
+                MoveSpecial::SpecialIllegalActionBlack | MoveSpecial::SpecialIllegalActionWhite => {
+                    v.last()?.move_.map(|mmf| match mmf.color {
+                        Color::Black => MoveSpecial::SpecialIllegalActionBlack,
+                        Color::White => MoveSpecial::SpecialIllegalActionWhite,
+                    })
+                }
+                special => Some(special),
+            });
+            if let Some(special) = special {
                 v.push(MoveFormat {
                     special: Some(special),
                     ..Default::default()
                 });
             }
-            [
+            let mut moves = [
                 vec![MoveFormat {
                     comments,
                     ..Default::default()
                 }],
                 v,
             ]
-            .concat()
+            .concat();
+            // They belong to the last entry: the special, or else the last move.
+            if let (Some(trailing), Some(last)) = (trailing, moves.last_mut()) {
+                last.comments.get_or_insert_with(Vec::new).extend(trailing);
+            }
+            moves
         },
     )(input)
 }

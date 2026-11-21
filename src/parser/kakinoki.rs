@@ -62,6 +62,25 @@ fn comment_line(input: &str) -> IResult<&str, String, VerboseError<&str>> {
     )(input)
 }
 
+/// How a game ended, in the words a KIF move line uses (and Shogi DB2's KI2, which writes
+/// them as one more move). 反則勝ち is a win for the side to move, on the other side's
+/// foul, so which side fouled depends on the ply: the caller settles it, as it does a
+/// move's colour.
+pub(super) fn special_word(input: &str) -> IResult<&str, MoveSpecial, VerboseError<&str>> {
+    alt((
+        value(MoveSpecial::SpecialToryo, tag("投了")),
+        value(MoveSpecial::SpecialChudan, tag("中断")),
+        value(MoveSpecial::SpecialSennichite, tag("千日手")),
+        value(MoveSpecial::SpecialTimeUp, tag("切れ負け")),
+        value(MoveSpecial::SpecialIllegalActionWhite, tag("反則勝ち")),
+        value(MoveSpecial::SpecialIllegalMove, tag("反則負け")),
+        value(MoveSpecial::SpecialJishogi, tag("持将棋")),
+        value(MoveSpecial::SpecialKachi, tag("入玉勝ち")),
+        value(MoveSpecial::SpecialTsumi, tag("詰み")),
+        value(MoveSpecial::SpecialFuzumi, tag("不詰")),
+    ))(input)
+}
+
 pub(super) fn not_move_line(input: &str) -> IResult<&str, &str, VerboseError<&str>> {
     delimited(none_of(" 0123456789*▲△"), not_line_ending, line_ending)(input)
 }

@@ -542,6 +542,104 @@ mod tests {
     }
 
     #[test]
+    fn ki2_comments_after_the_last_move() {
+        use crate::converter::ToKi2;
+        use crate::jkf::MoveSpecial::*;
+
+        let comments = |v: &[&str]| Some(v.iter().map(|&s| String::from(s)).collect());
+        // tsshogi writes a special's comments and bookmark after the `まで…` line, and
+        // reads them back onto the special. No rule read them, so the record was rejected.
+        for eol in ["\n", "\r\n"] {
+            let ki2 = [
+                "手合割：平手",
+                "▲７六歩    △３四歩",
+                "*最終手",
+                "まで2手で後手の勝ち",
+                "*投了図",
+                "&終局",
+                "",
+            ]
+            .join(eol);
+            let jkf = parse_ki2_str(&ki2).unwrap_or_else(|e| panic!("{eol:?}: {e}"));
+            assert_eq!(jkf.moves.len(), 4, "{eol:?}");
+            assert_eq!(jkf.moves[2].comments, comments(&["最終手"]), "{eol:?}");
+            assert_eq!(jkf.moves[3].special, Some(SpecialToryo), "{eol:?}");
+            assert_eq!(
+                jkf.moves[3].comments,
+                comments(&["投了図", "&終局"]),
+                "{eol:?}"
+            );
+        }
+        // With no `まで…` line, comments past a blank line go to the last move. This
+        // crate's writer leaves a blank line before a special's comments when the last
+        // move has comments too, and writes no `まで…` line, so its own output was
+        // rejected.
+        let kif = "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n   2 ３四歩(33)\n*最終手\n   3 投了\n*投了図\n";
+        let written = parse_kif_str(kif).expect("should parse").to_ki2_owned();
+        let jkf = parse_ki2_str(&written).unwrap_or_else(|e| panic!("{written}: {e}"));
+        assert_eq!(jkf.moves.len(), 3, "{written}");
+        assert_eq!(jkf.moves[2].comments, comments(&["最終手", "投了図"]));
+        // `floodgate.json` has that shape: an evaluation on its last move, and the game
+        // summary on its TORYO. All of it reads back but the TORYO, which the KI2 writer
+        // does not write.
+        let jkf = parse_jkf_file("data/tests/csa/floodgate.json").expect("should parse");
+        let written = jkf.to_ki2_owned();
+        let reparsed = parse_ki2_str(&written).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(reparsed.moves.len(), jkf.moves.len() - 1);
+    }
+
+    #[test]
+    fn ki2_result_token() {
+        use crate::jkf::MoveSpecial::*;
+
+        // Shogi DB2 writes how the game ended as one more "move" before the `まで…` line,
+        // with a mark that need not be the side to move's. These are tsshogi's samples of
+        // it: the token was left unread, so each was rejected.
+        let opening = "▲２六歩 △３四歩 ▲７六歩 △５四歩 ▲４八銀 △５二飛 ▲６八玉 △５五歩";
+        for (ki2, len, special) in [
+            (
+                format!("{opening} ▲７八玉 △投了\nまで9手で先手の勝ち"),
+                11,
+                SpecialToryo,
+            ),
+            (
+                format!("{opening} △投了\nまで8手で後手の勝ち"),
+                10,
+                SpecialToryo,
+            ),
+            (
+                format!("{opening} ▲７八玉 △千日手\nまで9手で千日手"),
+                11,
+                SpecialSennichite,
+            ),
+            (
+                format!("{opening} △千日手\nまで8手で千日手"),
+                10,
+                SpecialSennichite,
+            ),
+            // With no `まで…` line, the token says how the game ended. 反則勝ち is a win
+            // for the side to move, on the foul of whoever moved last.
+            (format!("{opening} ▲投了\n"), 10, SpecialToryo),
+            (
+                format!("{opening}\n▲反則勝ち\n"),
+                10,
+                SpecialIllegalActionWhite,
+            ),
+        ] {
+            let jkf = parse_ki2_str(&ki2).unwrap_or_else(|e| panic!("{ki2}: {e}"));
+            assert_eq!(jkf.moves.len(), len, "{ki2}");
+            assert_eq!(
+                jkf.moves.last().and_then(|mf| mf.special),
+                Some(special),
+                "{ki2}"
+            );
+        }
+        // It ends the moves.
+        let err = parse_ki2_str("▲２六歩 △投了 ▲７六歩\n").expect_err("a token mid-game");
+        assert!(matches!(err, ParseError::Ki2(_)), "{err:?}");
+    }
+
+    #[test]
     fn kif_declined_promotion() {
         // A `不成` move line used to fail to parse, which stopped `many1` and left the
         // rest of the file unconsumed — the call still returned `Ok`, with the game
@@ -754,18 +852,31 @@ mod tests {
                     _ => parse_ki2_file(&path),
                 }
                 .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-                let text = match ext {
-                    "csa" => original.to_csa_owned(),
-                    "kif" => original.to_kif_owned(),
-                    _ => original.to_ki2_owned(),
-                };
-                let reparsed = match ext {
-                    "csa" => parse_csa_str(&text),
-                    "kif" => parse_kif_str(&text),
-                    _ => parse_ki2_str(&text),
+                // Into KIF and KI2 from every format, not only back into its own. Into CSA
+                // only from CSA: the csa crate stops at a comment with no text or one
+                // holding a comma (`oui202106290101.kif` has both) and drops the rest
+                // without an error.
+                let mut written = vec![
+                    ("KIF", parse_kif_str(&original.to_kif_owned())),
+                    ("KI2", parse_ki2_str(&original.to_ki2_owned())),
+                ];
+                if ext == "csa" {
+                    written.push(("CSA", parse_csa_str(&original.to_csa_owned())));
                 }
-                .unwrap_or_else(|e| panic!("{}: reading our own output back: {e}", path.display()));
-                assert_eq!(essence(&original), essence(&reparsed), "{}", path.display());
+                for (format, reparsed) in written {
+                    let reparsed = reparsed.unwrap_or_else(|e| {
+                        panic!(
+                            "{} as {format}: reading our own output back: {e}",
+                            path.display()
+                        )
+                    });
+                    assert_eq!(
+                        essence(&original),
+                        essence(&reparsed),
+                        "{} as {format}",
+                        path.display()
+                    );
+                }
             }
         }
         Ok(())
