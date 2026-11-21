@@ -464,8 +464,15 @@ fn normalize_move(mmf: &mut MoveMoveFormat, pos: &PartialPosition) -> Result<(),
     };
     // Set relative?
     if mmf.relative.is_none() {
-        if let Some(mut display) = display_single_move_kansuji(pos, mv) {
-            mmf.relative = match (display.pop(), display.pop()) {
+        if let Some(display) = display_single_move_kansuji(pos, mv) {
+            // A move that could promote ends in `成` or `不成`, written after the
+            // disambiguation, so that comes off first.
+            let rest = display
+                .strip_suffix("不成")
+                .or_else(|| display.strip_suffix('成'))
+                .unwrap_or(&display);
+            let mut tail = rest.chars().rev();
+            mmf.relative = match (tail.next(), tail.next()) {
                 (Some('左'), _) => Some(Relative::L),
                 (Some('直'), _) => Some(Relative::C),
                 (Some('右'), _) => Some(Relative::R),

@@ -15,7 +15,8 @@ fn single_move(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
             alt((value(Color::Black, tag("▲")), value(Color::White, tag("△")))),
             move_to,
             piece_kind,
-            opt(alt((value(true, tag("成")), value(false, tag("不成"))))),
+            // The disambiguation comes before `成` / `不成`, as in the official notation
+            // and in this crate's writer: `△５七桂左成`.
             opt(alt((
                 value(Relative::LU, tag("左上")),
                 value(Relative::LM, tag("左寄")),
@@ -31,12 +32,13 @@ fn single_move(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
                 value(Relative::D, tag("引")),
                 value(Relative::H, tag("打")),
             ))),
+            opt(alt((value(true, tag("成")), value(false, tag("不成"))))),
             preceded(
                 tuple((space0, opt(line_ending))),
                 opt(many1(move_comment_line)),
             ),
         )),
-        |(c, to, kind, promote, relative, comments)| {
+        |(c, to, kind, relative, promote, comments)| {
             // To disambiguate `Normal` move or `Drop` move, "打" will be parsed as `Some(PlaceFormat { x: 0, y: 0 })`
             let from = if relative == Some(Relative::H) {
                 Some(PlaceFormat { x: 0, y: 0 })
@@ -225,6 +227,25 @@ mod tests {
                 }
             )),
             single_move("▲８二金打")
+        );
+        assert_eq!(
+            Ok((
+                "",
+                MoveFormat {
+                    move_: Some(MoveMoveFormat {
+                        color: Color::Black,
+                        from: None,
+                        to: PlaceFormat { x: 3, y: 3 },
+                        piece: Kind::GI,
+                        same: None,
+                        promote: Some(true),
+                        capture: None,
+                        relative: Some(Relative::L),
+                    }),
+                    ..Default::default()
+                }
+            )),
+            single_move("▲３三銀左成")
         );
     }
 

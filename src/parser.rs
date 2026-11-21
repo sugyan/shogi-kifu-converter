@@ -331,6 +331,54 @@ mod tests {
     }
 
     #[test]
+    fn ki2_disambiguated_promotion() {
+        use crate::converter::ToKi2;
+        use crate::jkf::{PlaceFormat, Relative};
+
+        // Black silvers on 2四 and 4四 both reach 3三, inside the promotion zone, so the
+        // move needs a disambiguator and 成/不成 at once. The parser wanted 成/不成 first,
+        // the reverse of the official order its own writer uses: `▲３三銀左` was read,
+        // its promotion came back as 不成, and the rest of the game was dropped.
+        let board = "手合割：その他\n後手の持駒：なし\n  ９ ８ ７ ６ ５ ４ ３ ２ １\n+---------------------------+\n| ・ ・ ・ ・v玉 ・ ・ ・ ・|一\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|二\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|三\n| ・ ・ ・ ・ ・ 銀 ・ 銀 ・|四\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|五\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|六\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|七\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|八\n| ・ ・ ・ ・ 玉 ・ ・ ・ ・|九\n+---------------------------+\n先手の持駒：なし\n";
+        for (mv, from, promote, relative) in [
+            ("▲３三銀左成", (4, 4), true, Relative::L),
+            ("▲３三銀右成", (2, 4), true, Relative::R),
+            ("▲３三銀左不成", (4, 4), false, Relative::L),
+        ] {
+            let ki2 = format!("{board}{mv} △５二玉\n");
+            let jkf = parse_ki2_str(&ki2).unwrap_or_else(|e| panic!("{mv}: {e}"));
+            assert_eq!(jkf.moves.len(), 3, "{mv}");
+            let m = jkf.moves[1].move_.expect("move");
+            assert_eq!(
+                (m.from, m.promote, m.relative),
+                (
+                    Some(PlaceFormat {
+                        x: from.0,
+                        y: from.1
+                    }),
+                    Some(promote),
+                    Some(relative)
+                ),
+                "{mv}"
+            );
+            // The writer spells it the same way, and that reads back.
+            let written = jkf.to_ki2_owned();
+            assert!(written.contains(mv), "{mv}: {written}");
+            assert_eq!(parse_ki2_str(&written).ok(), Some(jkf), "{mv}");
+        }
+
+        // From KIF the disambiguator is worked out from the position, and that stopped at
+        // the trailing 成: the KI2 writer got no disambiguator and wrote `▲３三銀成`,
+        // which cannot be read back.
+        let kif =
+            format!("{board}手数----指手---------消費時間--\n   1 ３三銀成(44)\n   2 ５二玉(51)\n");
+        let jkf = parse_kif_str(&kif).expect("should parse");
+        let written = jkf.to_ki2_owned();
+        assert!(written.contains("▲３三銀左成"), "{written}");
+        assert_eq!(parse_ki2_str(&written).ok(), Some(jkf));
+    }
+
+    #[test]
     fn kif_declined_promotion() {
         // A `不成` move line used to fail to parse, which stopped `many1` and left the
         // rest of the file unconsumed — the call still returned `Ok`, with the game
