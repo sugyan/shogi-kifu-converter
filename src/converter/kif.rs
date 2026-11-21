@@ -8,6 +8,9 @@ pub trait ToKif {
     ///
     /// This function returns Err(core::fmt::Error)
     /// if and only if it fails to write to `sink`.
+    ///
+    /// A value [`normalize`](JsonKifuFormat::normalize) would reject is written as far as
+    /// KIF can express it: a move entry with neither `move` nor `special` is left out.
     fn to_kif<W: Write>(&self, sink: &mut W) -> Result;
 
     /// Returns `self`'s string representation.
@@ -61,6 +64,12 @@ fn write_move_kind<W: Write>(kind: Kind, sink: &mut W, offset: &mut usize) -> Re
 
 fn write_move_lines<W: Write>(moves: &[MoveFormat], index: usize, sink: &mut W) -> Result {
     let mut forks_stack = Vec::new();
+    // An entry with neither a move nor a special has nothing to write. `normalize`
+    // rejects one, so only a value built by hand gets here: it is left out, and the plies
+    // after it are numbered as if it were not there.
+    let moves = moves
+        .iter()
+        .filter(|mf| mf.move_.is_some() || mf.special.is_some());
     for (i, mf) in (index..).zip(moves) {
         sink.write_fmt(format_args!("{:4} ", i))?;
         let mut offset = 0;
@@ -117,8 +126,6 @@ fn write_move_lines<W: Write>(moves: &[MoveFormat], index: usize, sink: &mut W) 
                 // TODO: SpecialIllegalActionBlack, SpecialIllegalActionWhite, SpecialFuzumi, SpecialError, etc...
                 _ => sink.write_str("中断")?,
             }
-        } else {
-            unreachable!()
         }
         if let Some(time) = mf.time {
             (0..13 - offset).try_for_each(|_| sink.write_char(' '))?;

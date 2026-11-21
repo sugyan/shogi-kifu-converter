@@ -133,6 +133,10 @@ impl TryFrom<&jkf::JsonKifuFormat> for Position {
                 pos.make_move(mv).ok_or_else(|| {
                     ConvertError::Normalize(NormalizeError::MakeMoveFailed(mv).to_string())
                 })?;
+            } else if mf.special.is_some() {
+                // The game ends at a special. `normalize` stops there too and does not
+                // check what follows, so playing on could fail on a record it accepted.
+                break;
             }
         }
         Ok(pos)

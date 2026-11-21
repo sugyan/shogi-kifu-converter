@@ -209,7 +209,21 @@ fn pk2k(pk: shogi_core::PieceKind) -> Kind {
 }
 
 impl JsonKifuFormat {
+    /// Replays the record from its initial position and fills in what the source format
+    /// left implicit (the from-square, `same`, `promote`, `capture`, `relative` and the
+    /// total times), so that every parser hands back the same shape for the same game.
+    ///
+    /// The `parse_*` functions call this. A value built by hand, or deserialized without
+    /// [`parse_jkf_str`](crate::parser::parse_jkf_str), should go through it before it is
+    /// written out: the writers render what this accepts, and only as much of anything
+    /// else as their format can express.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NormalizeError`] if the record cannot be replayed from its initial
+    /// position, or if a move entry past `moves[0]` has neither `move` nor `special`.
     pub fn normalize(&mut self) -> Result<(), NormalizeError> {
+        check_entries(self.moves.get(1..).unwrap_or_default())?;
         normalize_initial(self)?;
         let pos = if let Some(initial) = &self.initial {
             match PartialPosition::try_from(initial) {
@@ -238,6 +252,22 @@ impl JsonKifuFormat {
         normalize_moves(moves, pos, [TimeFormat::default(); 2])?;
         Ok(())
     }
+}
+
+// Every entry past `moves[0]` stands for a ply, so it carries a move or a special (a fork
+// has no `moves[0]` of its own). The writers assume it, and checking here is where an
+// error can be returned. `normalize_moves` stops at the first special, so this walks the
+// whole tree itself.
+fn check_entries(moves: &[MoveFormat]) -> Result<(), NormalizeError> {
+    for mf in moves {
+        if mf.move_.is_none() && mf.special.is_none() {
+            return Err(NormalizeError::NoMoveOrSpecial);
+        }
+        for fork in mf.forks.iter().flatten() {
+            check_entries(fork)?;
+        }
+    }
+    Ok(())
 }
 
 // A fork replaces a move of the main line, so its plies carry the same numbers and the

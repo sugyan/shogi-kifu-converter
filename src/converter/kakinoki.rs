@@ -6,8 +6,16 @@ use std::fmt::{Result, Write};
 const SANYOU_SUJI: [char; 9] = ['１', '２', '３', '４', '５', '６', '７', '８', '９'];
 const KANSUJI: [char; 9] = ['一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
+/// Files are 1..=9. Writes nothing for anything else: `normalize` rejects such a square,
+/// and like [`write_kansuji`] this returns `fmt::Result` and has no way to say what it
+/// could not write, so it must not panic on a hand-built value either.
 pub(super) fn write_sanyou_suji<W: Write>(num: u8, sink: &mut W) -> Result {
-    sink.write_char(SANYOU_SUJI[num as usize - 1])?;
+    if let Some(&c) = num
+        .checked_sub(1)
+        .and_then(|i| SANYOU_SUJI.get(usize::from(i)))
+    {
+        sink.write_char(c)?;
+    }
     Ok(())
 }
 
@@ -232,6 +240,20 @@ mod tests {
             write_kansuji(num, &mut s).expect("writing to a String cannot fail");
             assert_eq!(s, expected, "{num}");
         }
+    }
+
+    #[test]
+    fn sanyou_suji_out_of_range() {
+        // A file is 1..=9; anything else used to index out of bounds, or underflow in
+        // debug. `normalize` rejects such a square, so only a hand-built value gets here.
+        for num in [0, 10, u8::MAX] {
+            let mut s = String::new();
+            write_sanyou_suji(num, &mut s).expect("writing to a String cannot fail");
+            assert_eq!(s, "", "{num}");
+        }
+        let mut s = String::new();
+        write_sanyou_suji(9, &mut s).expect("writing to a String cannot fail");
+        assert_eq!(s, "９");
     }
 
     #[test]

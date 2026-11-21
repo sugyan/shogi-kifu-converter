@@ -273,6 +273,64 @@ mod tests {
     }
 
     #[test]
+    fn move_entry_with_neither_move_nor_special() {
+        use crate::converter::{ToCsa, ToKi2, ToKif};
+        use crate::jkf::{Initial, Preset};
+        use shogi_core::ToUsi;
+
+        // Every field of `MoveFormat` is optional, so `{}` deserializes, and
+        // `normalize_moves` stopped at one without a word. The KIF and CSA writers then
+        // hit `unreachable!()` on it, while KI2 quietly wrote nothing for it.
+        let p76 = r#"{"color":0,"from":{"x":7,"y":7},"to":{"x":7,"y":6},"piece":"FU"}"#;
+        let p34 = r#"{"color":1,"from":{"x":3,"y":3},"to":{"x":3,"y":4},"piece":"FU"}"#;
+        let record = |moves: &str| format!(r#"{{"header":{{}},"moves":[{{}},{moves}]}}"#);
+        for json in [
+            record("{}"),
+            // after a special, which `normalize_moves` does not replay
+            record(&format!(r#"{{"move":{p76}}},{{"special":"TORYO"}},{{}}"#)),
+            // inside a fork
+            record(&format!(r#"{{"move":{p76},"forks":[[{{}}]]}}"#)),
+        ] {
+            let err = parse_jkf_str(&json).expect_err(&json);
+            assert!(matches!(err, ParseError::Normalize(_)), "{json}: {err:?}");
+        }
+
+        // A value that never went through `normalize` must not panic a writer either: the
+        // entry is left out, as if it were not there.
+        let json = record(&format!(r#"{{"move":{p76}}},{{}},{{"move":{p34}}}"#));
+        let with = serde_json::from_str::<JsonKifuFormat>(&json).expect("deserializes");
+        let mut without = with.clone();
+        without.moves.remove(2);
+        assert_eq!(with.to_kif_owned(), without.to_kif_owned());
+        assert_eq!(with.to_csa_owned(), without.to_csa_owned());
+        assert_eq!(with.to_ki2_owned(), without.to_ki2_owned());
+        assert_eq!(with.to_usi_owned(), "startpos moves 7g7f 3c3d");
+
+        // `PresetOther` with no board has no position to write, in CSA or in USI.
+        let jkf = JsonKifuFormat {
+            initial: Some(Initial {
+                preset: Preset::PresetOther,
+                data: None,
+            }),
+            ..Default::default()
+        };
+        assert_eq!(jkf.to_csa_owned(), "V2.2\n");
+        assert_eq!(jkf.to_usi_owned(), "");
+    }
+
+    #[test]
+    fn moves_after_a_special_are_not_played() {
+        use shogi_core::ToUsi;
+
+        // `normalize` stops at the first special and does not check what follows it, but
+        // `Position::try_from` went on playing those moves, so a record the parser had
+        // accepted made `to_usi` panic.
+        let kif = "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n   2 投了\n   3 ７六歩(77)\n";
+        let jkf = parse_kif_str(kif).expect("should parse");
+        assert_eq!(jkf.to_usi_owned(), "startpos moves 7g7f");
+    }
+
+    #[test]
     fn kif_declined_promotion() {
         // A `不成` move line used to fail to parse, which stopped `many1` and left the
         // rest of the file unconsumed — the call still returned `Ok`, with the game

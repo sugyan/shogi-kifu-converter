@@ -45,6 +45,9 @@ pub enum NormalizeError {
     /// A hand holds more pieces of one kind than a kifu can express
     #[error("Too many pieces in hand: {1} {0:?}")]
     HandCountOutOfRange(crate::jkf::Kind, u8),
+    /// A move entry past `moves[0]` has neither a [`move_`](crate::jkf::MoveFormat::move_) nor a [`special`](crate::jkf::MoveFormat::special)
+    #[error("Move entry has neither `move` nor `special`")]
+    NoMoveOrSpecial,
 }
 
 /// An error that can occur while parsing kifu data
