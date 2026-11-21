@@ -220,7 +220,14 @@ mod tests {
             let kif = format!("手合割：{name}\n手数----指手---------消費時間--\n");
             let jkf = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{name}: {e}"));
             assert_eq!(jkf.to_kif_owned(), kif, "{name}");
-            assert!(jkf.to_csa_owned().contains(pi), "{name}");
+            assert!(jkf.to_csa_owned().contains(&format!("\n{pi}\n")), "{name}");
+            // The same layout arriving as board data has to come back as the same preset.
+            // KY_R and the five presets above that used to panic stayed `PresetOther`, so
+            // `csa2kif` wrote a diagram where `kif2kif` wrote the name.
+            let turn = if name == "平手" { '+' } else { '-' };
+            let csa = parse_csa_str(&format!("V2.2\n{pi}\n{turn}\n"))
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(csa.initial, jkf.initial, "{name}");
             assert_eq!(parse_kif_str(&jkf.to_kif_owned()).ok(), Some(jkf), "{name}");
         }
     }

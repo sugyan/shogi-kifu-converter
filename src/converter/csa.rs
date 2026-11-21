@@ -1,4 +1,5 @@
 use crate::jkf::*;
+use crate::normalizer::{handicap_squares, HIRATE_BOARD};
 use std::collections::HashMap;
 use std::fmt::{Result, Write};
 
@@ -131,28 +132,22 @@ fn write_initial_data<W: Write>(data: &StateFormat, sink: &mut W) -> Result {
 }
 
 fn write_initial_preset<W: Write>(preset: Preset, sink: &mut W) -> Result {
-    match preset {
-        Preset::PresetHirate => sink.write_str("PI")?,
-        Preset::PresetKY => sink.write_str("PI11KY")?,
-        Preset::PresetKYR => sink.write_str("PI91KY")?,
-        Preset::PresetKA => sink.write_str("PI22KA")?,
-        Preset::PresetHI => sink.write_str("PI82HI")?,
-        Preset::PresetHIKY => sink.write_str("PI82HI11KY")?,
-        Preset::Preset2 => sink.write_str("PI82HI22KA")?,
-        Preset::Preset3 => sink.write_str("PI82HI22KA11KY")?,
-        Preset::Preset4 => sink.write_str("PI82HI22KA91KY11KY")?,
-        Preset::Preset5 => sink.write_str("PI82HI22KA91KY11KY81KE")?,
-        Preset::Preset5L => sink.write_str("PI82HI22KA91KY11KY21KE")?,
-        Preset::Preset6 => sink.write_str("PI82HI22KA91KY11KY81KE21KE")?,
-        Preset::Preset7L => sink.write_str("PI82HI22KA91KY11KY81KE21KE31GI")?,
-        Preset::Preset7R => sink.write_str("PI82HI22KA91KY11KY81KE21KE71GI")?,
-        Preset::Preset8 => sink.write_str("PI82HI22KA91KY11KY81KE21KE71GI31GI")?,
-        Preset::Preset10 => sink.write_str("PI82HI22KA91KY11KY81KE21KE71GI31GI61KI41KI")?,
+    let squares = match handicap_squares(preset) {
+        Some(squares) => squares,
         // No parser produces this: `OTHER` without board data is rejected by
         // `TryFrom<&jkf::Initial>` during `normalize`. `to_csa` does not run that
         // check, though, so a hand-built value reaches here — and CSA has no notation
         // for a handicap with no board to describe it.
-        Preset::PresetOther => unimplemented!("`PresetOther` requires initial board data"),
+        None => unimplemented!("`PresetOther` requires initial board data"),
+    };
+    // `PI` followed by each square the handicap clears and the piece standing there.
+    sink.write_str("PI")?;
+    for sq in squares {
+        sink.write_fmt(format_args!("{}{}", sq.file(), sq.rank()))?;
+        let piece = HIRATE_BOARD[usize::from(sq.file()) - 1][usize::from(sq.rank()) - 1];
+        if let Some(kind) = piece.kind {
+            write_kind(kind, sink)?;
+        }
     }
     sink.write_char('\n')?;
     if preset == Preset::PresetHirate {

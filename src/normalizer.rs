@@ -1,6 +1,6 @@
 use crate::error::NormalizeError;
 use crate::jkf::*;
-use shogi_core::{LegalityChecker, PartialPosition};
+use shogi_core::{LegalityChecker, PartialPosition, Square};
 use shogi_legality_lite::LiteLegalityChecker;
 use shogi_official_kifu::display_single_move_kansuji;
 
@@ -56,107 +56,60 @@ pub(crate) const HIRATE_BOARD: [[Piece; 9]; 9] = {
     ]
 };
 
-const STATE_HIRATE: StateFormat = StateFormat {
-    color: Color::Black,
-    board: HIRATE_BOARD,
-    hands: [Hand::empty(); 2],
-};
+/// Every preset that names a layout: all but `PresetOther`.
+const PRESETS: [Preset; 16] = [
+    Preset::PresetHirate,
+    Preset::PresetKY,
+    Preset::PresetKYR,
+    Preset::PresetKA,
+    Preset::PresetHI,
+    Preset::PresetHIKY,
+    Preset::Preset2,
+    Preset::Preset3,
+    Preset::Preset4,
+    Preset::Preset5,
+    Preset::Preset5L,
+    Preset::Preset6,
+    Preset::Preset7L,
+    Preset::Preset7R,
+    Preset::Preset8,
+    Preset::Preset10,
+];
 
-const STATE_KY: StateFormat = {
-    let mut board = HIRATE_BOARD;
-    board[0][0] = Piece::empty();
-    StateFormat {
-        color: Color::White,
-        board,
-        hands: [Hand::empty(); 2],
-    }
-};
+/// The squares a handicap clears from [`HIRATE_BOARD`]. This is the one table of the
+/// layouts: the position a preset stands for, CSA's `PI` line and the board
+/// `normalize` folds back into a preset are all derived from it. `None` for
+/// `PresetOther`, which names no layout. The layouts follow json-kifu-format's reference
+/// implementation.
+#[rustfmt::skip]
+pub(crate) fn handicap_squares(preset: Preset) -> Option<&'static [Square]> {
+    Some(match preset {
+        Preset::PresetHirate => &[],
+        Preset::PresetKY     => &[Square::SQ_1A],
+        Preset::PresetKYR    => &[Square::SQ_9A],
+        Preset::PresetKA     => &[Square::SQ_2B],
+        Preset::PresetHI     => &[Square::SQ_8B],
+        Preset::PresetHIKY   => &[Square::SQ_8B, Square::SQ_1A],
+        Preset::Preset2      => &[Square::SQ_8B, Square::SQ_2B],
+        Preset::Preset3      => &[Square::SQ_8B, Square::SQ_2B, Square::SQ_1A],
+        Preset::Preset4      => &[Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A],
+        Preset::Preset5      => &[Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A],
+        Preset::Preset5L     => &[Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_2A],
+        Preset::Preset6      => &[Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A, Square::SQ_2A],
+        Preset::Preset7L     => &[Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A, Square::SQ_2A, Square::SQ_3A],
+        Preset::Preset7R     => &[Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A, Square::SQ_2A, Square::SQ_7A],
+        Preset::Preset8      => &[Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A, Square::SQ_2A, Square::SQ_7A, Square::SQ_3A],
+        Preset::Preset10     => &[Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A, Square::SQ_2A, Square::SQ_7A, Square::SQ_3A, Square::SQ_6A, Square::SQ_4A],
+        Preset::PresetOther  => return None,
+    })
+}
 
-const STATE_KA: StateFormat = {
-    let mut board = HIRATE_BOARD;
-    board[1][1] = Piece::empty();
-    StateFormat {
-        color: Color::White,
-        board,
-        hands: [Hand::empty(); 2],
-    }
-};
-
-const STATE_HI: StateFormat = {
-    let mut board = HIRATE_BOARD;
-    board[7][1] = Piece::empty();
-    StateFormat {
-        color: Color::White,
-        board,
-        hands: [Hand::empty(); 2],
-    }
-};
-
-const STATE_HIKY: StateFormat = {
-    let mut board = HIRATE_BOARD;
-    board[0][0] = Piece::empty();
-    board[7][1] = Piece::empty();
-    StateFormat {
-        color: Color::White,
-        board,
-        hands: [Hand::empty(); 2],
-    }
-};
-
-const STATE_2: StateFormat = {
-    let mut board = HIRATE_BOARD;
-    board[1][1] = Piece::empty();
-    board[7][1] = Piece::empty();
-    StateFormat {
-        color: Color::White,
-        board,
-        hands: [Hand::empty(); 2],
-    }
-};
-
-const STATE_4: StateFormat = {
-    let mut board = STATE_2.board;
-    board[0][0] = Piece::empty();
-    board[8][0] = Piece::empty();
-    StateFormat {
-        color: Color::White,
-        board,
-        hands: [Hand::empty(); 2],
-    }
-};
-
-const STATE_6: StateFormat = {
-    let mut board = STATE_4.board;
-    board[1][0] = Piece::empty();
-    board[7][0] = Piece::empty();
-    StateFormat {
-        color: Color::White,
-        board,
-        hands: [Hand::empty(); 2],
-    }
-};
-
-const STATE_8: StateFormat = {
-    let mut board = STATE_6.board;
-    board[2][0] = Piece::empty();
-    board[6][0] = Piece::empty();
-    StateFormat {
-        color: Color::White,
-        board,
-        hands: [Hand::empty(); 2],
-    }
-};
-
-const STATE_10: StateFormat = {
-    let mut board = STATE_8.board;
-    board[3][0] = Piece::empty();
-    board[5][0] = Piece::empty();
-    StateFormat {
-        color: Color::White,
-        board,
-        hands: [Hand::empty(); 2],
-    }
-};
+/// The board data `preset` stands for, by way of its position: the same conversion any
+/// other board goes through, so the two cannot disagree on what a layout looks like.
+fn layout(preset: Preset) -> Option<StateFormat> {
+    let pos = PartialPosition::try_from(&Initial { preset, data: None }).ok()?;
+    Initial::from(&pos).data
+}
 
 impl Piece {
     pub(crate) const fn empty() -> Self {
@@ -193,17 +146,6 @@ impl Kind {
 }
 
 impl Hand {
-    pub(crate) const fn empty() -> Self {
-        Hand {
-            FU: 0,
-            KY: 0,
-            KE: 0,
-            GI: 0,
-            KI: 0,
-            KA: 0,
-            HI: 0,
-        }
-    }
     // Driven by a record's own piece list, which is not bounded by the rules, so this
     // saturates for the same reason `decrement` does.
     pub(crate) fn increment(&mut self, kind: Kind) {
@@ -320,49 +262,13 @@ fn invert_colors(moves: &mut [MoveFormat]) {
 
 fn normalize_initial(jkf: &mut JsonKifuFormat) -> Result<(), NormalizeError> {
     if let Some(initial) = &mut jkf.initial {
-        *initial = match initial.data {
-            Some(STATE_HIRATE) => Initial {
-                preset: Preset::PresetHirate,
-                data: None,
-            },
-            Some(STATE_KY) => Initial {
-                preset: Preset::PresetKY,
-                data: None,
-            },
-            Some(STATE_KA) => Initial {
-                preset: Preset::PresetKA,
-                data: None,
-            },
-            Some(STATE_HI) => Initial {
-                preset: Preset::PresetHI,
-                data: None,
-            },
-            Some(STATE_HIKY) => Initial {
-                preset: Preset::PresetHIKY,
-                data: None,
-            },
-            Some(STATE_2) => Initial {
-                preset: Preset::Preset2,
-                data: None,
-            },
-            Some(STATE_4) => Initial {
-                preset: Preset::Preset4,
-                data: None,
-            },
-            Some(STATE_6) => Initial {
-                preset: Preset::Preset6,
-                data: None,
-            },
-            Some(STATE_8) => Initial {
-                preset: Preset::Preset8,
-                data: None,
-            },
-            Some(STATE_10) => Initial {
-                preset: Preset::Preset10,
-                data: None,
-            },
-            _ => *initial,
-        };
+        // A board that is exactly a handicap layout is stored by its name, whichever entry
+        // point it came through.
+        if let Some(data) = initial.data {
+            if let Some(preset) = PRESETS.into_iter().find(|&p| layout(p) == Some(data)) {
+                *initial = Initial { preset, data: None };
+            }
+        }
         // A KIF hand count is spelled in kanji and the writer stops at 九十九, which is
         // also the most SFEN carries in one token. Reject a larger count here, where it
         // can be reported: the writers return `fmt::Result` and cannot say which piece
