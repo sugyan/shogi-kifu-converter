@@ -273,7 +273,8 @@ fn check_entries(moves: &[MoveFormat]) -> Result<(), NormalizeError> {
 // A fork replaces a move of the main line, so its plies carry the same numbers and the
 // parser gave them colours from the same parity. Inverting has to reach them too, or
 // `normalize_moves` walks into a fork whose colours disagree with the position and
-// `normalize_move` rejects the whole record.
+// `normalize_move` rejects the whole record. KIF's 反則勝ち was given its side by the
+// same parity, so it is inverted along with the moves.
 fn invert_colors(moves: &mut [MoveFormat]) {
     for mf in moves {
         if let Some(mmf) = &mut mf.move_ {
@@ -282,6 +283,11 @@ fn invert_colors(moves: &mut [MoveFormat]) {
                 Color::White => Color::Black,
             };
         }
+        mf.special = mf.special.map(|special| match special {
+            MoveSpecial::SpecialIllegalActionBlack => MoveSpecial::SpecialIllegalActionWhite,
+            MoveSpecial::SpecialIllegalActionWhite => MoveSpecial::SpecialIllegalActionBlack,
+            special => special,
+        });
         if let Some(forks) = &mut mf.forks {
             for fork in forks.iter_mut() {
                 invert_colors(fork);

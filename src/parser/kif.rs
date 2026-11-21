@@ -2,8 +2,8 @@ use super::kakinoki::{move_comment_line, move_to, not_move_line, parse_without_m
 use crate::jkf::*;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
-use nom::character::complete::{digit1, line_ending, not_line_ending, space0};
-use nom::combinator::{map, map_opt, map_res, opt, value};
+use nom::character::complete::{digit1, line_ending, multispace0, not_line_ending, space0};
+use nom::combinator::{all_consuming, map, map_opt, map_res, opt, value};
 use nom::error::VerboseError;
 use nom::multi::{many0, many1};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
@@ -32,10 +32,14 @@ fn move_special(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
             value(MoveSpecial::SpecialChudan, tag("中断")),
             value(MoveSpecial::SpecialSennichite, tag("千日手")),
             value(MoveSpecial::SpecialTimeUp, tag("切れ負け")),
+            // A win for the side to move, on the other side's foul. Which side that is
+            // depends on the ply, so `move_line` settles it, as it does a move's colour.
+            value(MoveSpecial::SpecialIllegalActionWhite, tag("反則勝ち")),
             value(MoveSpecial::SpecialIllegalMove, tag("反則負け")),
             value(MoveSpecial::SpecialJishogi, tag("持将棋")),
             value(MoveSpecial::SpecialKachi, tag("入玉勝ち")),
             value(MoveSpecial::SpecialTsumi, tag("詰み")),
+            value(MoveSpecial::SpecialFuzumi, tag("不詰")),
         )),
         |special| MoveFormat {
             special: Some(special),
@@ -122,6 +126,21 @@ fn move_line(input: &str) -> IResult<&str, (usize, MoveFormat), VerboseError<&st
         |(i, mut mf, time)| {
             if let Some(mmf) = &mut mf.move_ {
                 mmf.color = [Color::White, Color::Black][i % 2];
+            }
+            // 反則勝ち: the side to move by the same parity wins, so the foul is the other
+            // side's.
+            if matches!(
+                mf.special,
+                Some(
+                    MoveSpecial::SpecialIllegalActionBlack | MoveSpecial::SpecialIllegalActionWhite
+                )
+            ) {
+                mf.special = Some(
+                    [
+                        MoveSpecial::SpecialIllegalActionBlack,
+                        MoveSpecial::SpecialIllegalActionWhite,
+                    ][i % 2],
+                );
             }
             mf.time = time;
             (i, mf)
@@ -214,13 +233,19 @@ fn entire_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str
 }
 
 pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifuFormat, VerboseError<&str>> {
-    map(
-        pair(parse_without_moves, entire_moves),
-        |(mut jkf, moves)| {
-            jkf.moves.extend(moves);
-            jkf
-        },
-    )(input)
+    // All of the input has to be read. A line no rule takes used to end the moves there,
+    // and everything after it was dropped without a word. Only trailing whitespace may be
+    // left over.
+    all_consuming(terminated(
+        map(
+            pair(parse_without_moves, entire_moves),
+            |(mut jkf, moves)| {
+                jkf.moves.extend(moves);
+                jkf
+            },
+        ),
+        multispace0,
+    ))(input)
 }
 
 #[cfg(test)]

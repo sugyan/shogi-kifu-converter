@@ -1,12 +1,12 @@
-use super::kakinoki::{move_comment_line, move_to, parse_without_moves, piece_kind};
+use super::kakinoki::{color_prefix, move_comment_line, move_to, parse_without_moves, piece_kind};
 use crate::jkf::*;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
-use nom::character::complete::{line_ending, space0};
-use nom::combinator::{map, opt, value};
+use nom::character::complete::{digit1, line_ending, multispace0, not_line_ending, space0};
+use nom::combinator::{all_consuming, map, opt, value};
 use nom::error::VerboseError;
 use nom::multi::{many0, many1};
-use nom::sequence::{pair, preceded, tuple};
+use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
 
 fn single_move(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
@@ -63,13 +63,62 @@ fn single_move(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
     )(input)
 }
 
+// KI2 has no move line for how a game ended: the `まで…` line that closes the record says
+// it. A wording not listed here still closes the record, since the moves are all there,
+// but it gives no special.
+fn result_line(input: &str) -> IResult<&str, Option<MoveSpecial>, VerboseError<&str>> {
+    delimited(
+        tuple((tag("まで"), digit1, tag("手"))),
+        opt(alt((
+            value(
+                MoveSpecial::SpecialTimeUp,
+                tuple((tag("で時間切れにより"), color_prefix, tag("の勝ち"))),
+            ),
+            // The winner is named, so the foul was the other side's.
+            map(
+                delimited(tag("で"), color_prefix, tag("の反則勝ち")),
+                |winner| match winner {
+                    Color::Black => MoveSpecial::SpecialIllegalActionWhite,
+                    Color::White => MoveSpecial::SpecialIllegalActionBlack,
+                },
+            ),
+            value(
+                MoveSpecial::SpecialIllegalMove,
+                tuple((tag("で"), color_prefix, tag("の反則負け"))),
+            ),
+            value(
+                MoveSpecial::SpecialKachi,
+                tuple((tag("で"), color_prefix, tag("の入玉勝ち"))),
+            ),
+            value(
+                MoveSpecial::SpecialToryo,
+                tuple((tag("で"), color_prefix, tag("の勝ち"))),
+            ),
+            value(MoveSpecial::SpecialChudan, tag("で中断")),
+            value(MoveSpecial::SpecialJishogi, tag("で持将棋")),
+            value(MoveSpecial::SpecialSennichite, tag("で千日手")),
+            value(MoveSpecial::SpecialFuzumi, tag("で不詰")),
+            value(MoveSpecial::SpecialTsumi, pair(opt(tag("で")), tag("詰"))),
+        ))),
+        pair(not_line_ending, line_ending),
+    )(input)
+}
+
 fn moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
     map(
-        pair(
+        tuple((
             preceded(many0(line_ending), opt(many1(move_comment_line))),
-            many0(single_move),
-        ),
-        |(comments, v)| {
+            // A blank line between moves does not end the game.
+            many0(preceded(multispace0, single_move)),
+            opt(preceded(multispace0, result_line)),
+        )),
+        |(comments, mut v, special)| {
+            if let Some(special) = special.flatten() {
+                v.push(MoveFormat {
+                    special: Some(special),
+                    ..Default::default()
+                });
+            }
             [
                 vec![MoveFormat {
                     comments,
@@ -83,10 +132,15 @@ fn moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
 }
 
 pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifuFormat, VerboseError<&str>> {
-    map(pair(parse_without_moves, moves), |(mut jkf, moves)| {
-        jkf.moves.extend(moves);
-        jkf
-    })(input)
+    // All of the input has to be read, as for KIF: `many0(single_move)` used to stop at
+    // anything it could not take, and the rest of the file was dropped without a word.
+    all_consuming(terminated(
+        map(pair(parse_without_moves, moves), |(mut jkf, moves)| {
+            jkf.moves.extend(moves);
+            jkf
+        }),
+        multispace0,
+    ))(input)
 }
 
 #[cfg(test)]

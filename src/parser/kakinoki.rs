@@ -199,7 +199,7 @@ fn information_line_preset(input: &str) -> IResult<&str, Information, VerboseErr
 
 // The names a side goes by at the start of an information line, shared by the 持駒 and
 // 番 lines so the two cannot drift apart on which spellings they accept.
-fn color_prefix(input: &str) -> IResult<&str, Color, VerboseError<&str>> {
+pub(super) fn color_prefix(input: &str) -> IResult<&str, Color, VerboseError<&str>> {
     alt((
         value(Color::Black, tag("先手")),
         value(Color::White, tag("後手")),

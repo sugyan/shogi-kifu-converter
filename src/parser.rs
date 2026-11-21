@@ -9,6 +9,7 @@ use crate::jkf::JsonKifuFormat;
 use encoding_rs::{SHIFT_JIS, UTF_8};
 use nom::error::convert_error;
 use nom::Finish;
+use std::borrow::Cow;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
@@ -36,6 +37,17 @@ pub fn parse_csa_str(s: &str) -> Result<JsonKifuFormat, ParseError> {
         Err(ParseError::Normalize(err.to_string()))
     } else {
         Ok(jkf)
+    }
+}
+
+// The KIF and KI2 grammars read whole lines, each ending in a line ending, and reject
+// input they cannot read to the end. A last line without one would be left over:
+// `data/tests/kif/piyo-shogi_KY.kif` ends that way.
+fn with_final_line_ending(s: &str) -> Cow<'_, str> {
+    if s.is_empty() || s.ends_with('\n') {
+        Cow::Borrowed(s)
+    } else {
+        Cow::Owned(format!("{s}\n"))
     }
 }
 
@@ -71,7 +83,8 @@ pub fn parse_kif_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ParseEr
 ///
 /// This function returns [`ConvertError`](crate::error::ConvertError) if it fails to parse the string.
 pub fn parse_kif_str(s: &str) -> Result<JsonKifuFormat, ParseError> {
-    match kif::parse(s).finish() {
+    let s = with_final_line_ending(s);
+    match kif::parse(&s).finish() {
         Ok((_, mut jkf)) => {
             if let Err(err) = jkf.normalize() {
                 Err(ParseError::Normalize(err.to_string()))
@@ -79,7 +92,7 @@ pub fn parse_kif_str(s: &str) -> Result<JsonKifuFormat, ParseError> {
                 Ok(jkf)
             }
         }
-        Err(err) => Err(ParseError::Kif(convert_error(s, err))),
+        Err(err) => Err(ParseError::Kif(convert_error(&*s, err))),
     }
 }
 
@@ -115,7 +128,8 @@ pub fn parse_ki2_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ParseEr
 ///
 /// This function returns [`ConvertError`](crate::error::ConvertError) if it fails to parse the string.
 pub fn parse_ki2_str(s: &str) -> Result<JsonKifuFormat, ParseError> {
-    match ki2::parse(s).finish() {
+    let s = with_final_line_ending(s);
+    match ki2::parse(&s).finish() {
         Ok((_, mut jkf)) => {
             if let Err(err) = jkf.normalize() {
                 Err(ParseError::Normalize(err.to_string()))
@@ -123,7 +137,7 @@ pub fn parse_ki2_str(s: &str) -> Result<JsonKifuFormat, ParseError> {
                 Ok(jkf)
             }
         }
-        Err(err) => Err(ParseError::Ki2(convert_error(s, err))),
+        Err(err) => Err(ParseError::Ki2(convert_error(&*s, err))),
     }
 }
 
@@ -376,6 +390,155 @@ mod tests {
         let written = jkf.to_ki2_owned();
         assert!(written.contains("▲３三銀左成"), "{written}");
         assert_eq!(parse_ki2_str(&written).ok(), Some(jkf));
+    }
+
+    #[test]
+    fn kif_unread_input_is_an_error() {
+        // `parse_kif_str` threw away whatever nom left unread, so a line no rule takes
+        // ended the game there and the call still returned `Ok`. KIF has no word for
+        // JKF's HIKIWAKE or MATTA, so these are not moves.
+        let head =
+            "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n   2 ３四歩(33)\n";
+        for line in ["   3 引き分け\n", "   3 待った\n", "   3 ２六歩(27\n"] {
+            let kif = format!("{head}{line}   4 ８四歩(83)\n");
+            let err = parse_kif_str(&kif).expect_err(line);
+            assert!(matches!(err, ParseError::Kif(_)), "{line}: {err:?}");
+        }
+        // Trailing blank lines are not unread input, and neither is a last line with no
+        // line ending, which used to be dropped.
+        for tail in ["\n\n", "  \n", "まで2手で中断", "   3 ２六歩(27)"] {
+            let kif = format!("{head}{tail}");
+            let jkf = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{tail:?}: {e}"));
+            let moves = if tail.ends_with("(27)") { 4 } else { 3 };
+            assert_eq!(jkf.moves.len(), moves, "{tail:?}");
+        }
+    }
+
+    #[test]
+    fn kif_fouls_and_unsolved_mates() {
+        use crate::converter::ToKif;
+        use crate::jkf::MoveSpecial::*;
+
+        // 不詰 and 反則勝ち had no rule, so a game ending in one lost that line, and would
+        // now fail to parse. 反則勝ち is a win for the side to move on the other side's
+        // foul; which side is to move follows from the ply, and 上手 (White) moves first
+        // in a handicap game.
+        let hirate = "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n";
+        let kyo = "手合割：香落ち\n手数----指手---------消費時間--\n   1 ５四歩(53)\n";
+        for (kif, ply, special) in [
+            (
+                format!("{hirate}   2 ３四歩(33)\n   3 不詰\n"),
+                3,
+                SpecialFuzumi,
+            ),
+            (
+                format!("{hirate}   2 反則勝ち\n"),
+                2,
+                SpecialIllegalActionBlack,
+            ),
+            (
+                format!("{hirate}   2 ３四歩(33)\n   3 反則勝ち\n"),
+                3,
+                SpecialIllegalActionWhite,
+            ),
+            (
+                format!("{kyo}   2 反則勝ち\n"),
+                2,
+                SpecialIllegalActionWhite,
+            ),
+            (
+                format!("{kyo}   2 ７六歩(77)\n   3 反則勝ち\n"),
+                3,
+                SpecialIllegalActionBlack,
+            ),
+        ] {
+            let jkf = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{kif}: {e}"));
+            assert_eq!(jkf.moves.len(), ply + 1, "{kif}");
+            assert_eq!(jkf.moves[ply].special, Some(special), "{kif}");
+            // The writer puts the same word back.
+            assert_eq!(jkf.to_kif_owned(), kif);
+        }
+
+        // A JKF (or CSA) foul names its side, which can be the side to move: an illegal 入玉
+        // declaration, say. KIF writes that as the side to move's loss. Both used to come
+        // out as 中断, and so did FUZUMI.
+        for (special, word) in [
+            ("+ILLEGAL_ACTION", "反則勝ち"),
+            ("-ILLEGAL_ACTION", "反則負け"),
+            ("FUZUMI", "不詰"),
+        ] {
+            let json = format!(
+                r#"{{"header":{{}},"moves":[{{}},{{"move":{{"color":0,"from":{{"x":7,"y":7}},"to":{{"x":7,"y":6}},"piece":"FU"}}}},{{"special":"{special}"}}]}}"#
+            );
+            let kif = parse_jkf_str(&json).expect("should parse").to_kif_owned();
+            assert!(kif.contains(&format!("   2 {word}\n")), "{special}: {kif}");
+        }
+
+        // The 中断 arm forgot to count its own width, so the time column ran four columns
+        // wide of the other lines.
+        let jkf = parse_kif_file("data/tests/kif/example.kif").expect("should parse");
+        assert!(jkf
+            .to_kif_owned()
+            .contains("   3 中断         ( 0:03/00:00:19)\n"));
+    }
+
+    #[test]
+    fn ki2_unread_input_is_an_error() {
+        // `many0(single_move)` stopped at anything it could not take, and the rest of the
+        // input was thrown away: a stray line, a 変化 block (which KI2 parsing does not
+        // support), or a file that is not a record at all.
+        for ki2 in [
+            "▲２六歩 △８四歩\n投了\n",
+            "▲２六歩 △８四歩\n変化：2手\n△３四歩\n",
+            "これは棋譜ではありません\n",
+        ] {
+            let err = parse_ki2_str(ki2).expect_err(ki2);
+            assert!(matches!(err, ParseError::Ki2(_)), "{ki2}: {err:?}");
+        }
+        // A blank line between moves does not end the game.
+        let jkf = parse_ki2_str("▲２六歩\n\n△８四歩\n").expect("should parse");
+        assert_eq!(jkf.moves.len(), 3);
+    }
+
+    #[test]
+    fn ki2_result_line() {
+        use crate::jkf::MoveSpecial::*;
+
+        // The `まで…` line is the only place KI2 says how the game ended. It used to be left
+        // unread, so the special was lost.
+        let moves = "▲２六歩 △８四歩\n";
+        for (line, special) in [
+            ("まで2手で後手の勝ち", Some(SpecialToryo)),
+            ("まで2手で時間切れにより後手の勝ち", Some(SpecialTimeUp)),
+            // The winner is named, so the foul is the other side's.
+            ("まで2手で後手の反則勝ち", Some(SpecialIllegalActionBlack)),
+            ("まで2手で先手の反則勝ち", Some(SpecialIllegalActionWhite)),
+            ("まで2手で先手の反則負け", Some(SpecialIllegalMove)),
+            ("まで2手で先手の入玉勝ち", Some(SpecialKachi)),
+            ("まで2手で中断", Some(SpecialChudan)),
+            ("まで2手で持将棋", Some(SpecialJishogi)),
+            ("まで2手で千日手", Some(SpecialSennichite)),
+            ("まで2手で詰み", Some(SpecialTsumi)),
+            ("まで2手詰", Some(SpecialTsumi)),
+            ("まで2手で不詰", Some(SpecialFuzumi)),
+            // A wording this does not know still closes the record: the moves are all there.
+            ("まで2手で終局", None),
+        ] {
+            // With and without a line ending after it.
+            for ki2 in [format!("{moves}{line}\n"), format!("{moves}{line}")] {
+                let jkf = parse_ki2_str(&ki2).unwrap_or_else(|e| panic!("{line}: {e}"));
+                assert_eq!(
+                    jkf.moves.len(),
+                    3 + usize::from(special.is_some()),
+                    "{line}"
+                );
+                assert_eq!(
+                    jkf.moves.last().and_then(|mf| mf.special),
+                    special,
+                    "{line}"
+                );
+            }
+        }
     }
 
     #[test]
