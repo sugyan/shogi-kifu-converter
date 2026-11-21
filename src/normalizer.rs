@@ -221,7 +221,8 @@ impl JsonKifuFormat {
     /// # Errors
     ///
     /// Returns [`NormalizeError`] if the record cannot be replayed from its initial
-    /// position, or if a move entry past `moves[0]` has neither `move` nor `special`.
+    /// position, if a hand in it holds more than 99 of a piece (the most a kifu can spell),
+    /// or if a move entry past `moves[0]` has neither `move` nor `special`.
     pub fn normalize(&mut self) -> Result<(), NormalizeError> {
         check_entries(self.moves.get(1..).unwrap_or_default())?;
         normalize_initial(self)?;
@@ -255,9 +256,10 @@ impl JsonKifuFormat {
 }
 
 // Every entry past `moves[0]` stands for a ply, so it carries a move or a special (a fork
-// has no `moves[0]` of its own). The writers assume it, and checking here is where an
-// error can be returned. `normalize_moves` stops at the first special, so this walks the
-// whole tree itself.
+// has no `moves[0]` of its own). The writers have nothing to write for one that does not
+// and leave it out, comments and time included, with no way to say so, so it is rejected
+// here, where an error can be returned. `normalize_moves` stops at the first special, so
+// this walks the whole tree itself.
 fn check_entries(moves: &[MoveFormat]) -> Result<(), NormalizeError> {
     for mf in moves {
         if mf.move_.is_none() && mf.special.is_none() {
