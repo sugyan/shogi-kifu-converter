@@ -470,6 +470,37 @@ mod tests {
     }
 
     #[test]
+    fn utf8_fixtures_match_their_shift_jis_twins() -> Result<()> {
+        // `.kifu` / `.ki2u` are the same records as their `.kif` / `.ki2` twins, so any
+        // difference between the two parses is a bug in decoding. Walking from the UTF-8
+        // side skips `oui202106290101.kif`, which has no twin.
+        for (dir, utf8, shift_jis) in [
+            ("data/tests/kif", "kifu", "kif"),
+            ("data/tests/ki2", "ki2u", "ki2"),
+        ] {
+            let parse = |path: &Path| match utf8 {
+                "kifu" => parse_kif_file(path),
+                _ => parse_ki2_file(path),
+            };
+            let mut pairs = 0;
+            for entry in Path::new(dir).read_dir()? {
+                let path = entry?.path();
+                if path.extension() != Some(OsStr::new(utf8)) {
+                    continue;
+                }
+                let twin = path.with_extension(shift_jis);
+                let from_utf8 = parse(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+                let from_shift_jis =
+                    parse(&twin).unwrap_or_else(|e| panic!("{}: {e}", twin.display()));
+                assert_eq!(from_utf8, from_shift_jis, "{}", path.display());
+                pairs += 1;
+            }
+            assert!(pairs > 0, "no .{utf8} fixtures in {dir}");
+        }
+        Ok(())
+    }
+
+    #[test]
     fn ki2_initial_side_to_move() {
         use crate::converter::ToKi2;
         use crate::jkf::*;
