@@ -472,47 +472,55 @@ fn normalize_move(mmf: &mut MoveMoveFormat, pos: &PartialPosition) -> Result<(),
     if mmf.from.is_none() {
         mmf.from = calculate_from(mmf, pos, to)?;
     }
+    // `(0, 0)` is how a from-square says "drop": the parsers write it for `打` and for
+    // CSA's `00`, and `JsonKifuFormat::try_from(&Position)` for every drop. JKF spells a
+    // drop as no from-square at all, so the marker is unwound here. Any other square off
+    // the board is malformed input, and taking it for a drop would make up a move the
+    // record does not contain.
+    if mmf.from == Some(PlaceFormat { x: 0, y: 0 }) {
+        mmf.from = None;
+    }
     if let Some(pf) = &mmf.from {
-        if let Ok(from) = pf.try_into() {
-            // Retrieve piece
-            let piece = match pos.piece_at(from) {
-                Some(piece) => piece,
-                None => return Err(NormalizeError::NoPieceAt(from)),
-            };
-            let from_piece_kind = piece.piece_kind();
-            let to_piece_kind = {
-                let pk = shogi_core::PieceKind::from(mmf.piece);
-                if mmf.promote.unwrap_or_default() {
-                    pk.promote().unwrap_or(pk)
-                } else {
-                    pk
-                }
-            };
-            mmf.piece = pk2k(from_piece_kind);
-            // Set same?
-            mmf.same = if pos
-                .last_move()
-                .map(|last| to == last.to())
-                .unwrap_or_default()
-            {
-                Some(true)
+        let from = match shogi_core::Square::try_from(pf) {
+            Ok(from) => from,
+            Err(err) => return Err(NormalizeError::Convert(err.to_string())),
+        };
+        // Retrieve piece
+        let piece = match pos.piece_at(from) {
+            Some(piece) => piece,
+            None => return Err(NormalizeError::NoPieceAt(from)),
+        };
+        let from_piece_kind = piece.piece_kind();
+        let to_piece_kind = {
+            let pk = shogi_core::PieceKind::from(mmf.piece);
+            if mmf.promote.unwrap_or_default() {
+                pk.promote().unwrap_or(pk)
             } else {
-                None
-            };
-            // Set promote?
-            mmf.promote = if from_piece_kind.promote().is_some()
-                && (from.relative_rank(pos.side_to_move()) <= 3
-                    || to.relative_rank(pos.side_to_move()) <= 3)
-            {
-                Some(from_piece_kind != to_piece_kind)
-            } else {
-                None
-            };
-            // Set capture?
-            mmf.capture = pos.piece_at(to).map(|p| pk2k(p.piece_kind()));
+                pk
+            }
+        };
+        mmf.piece = pk2k(from_piece_kind);
+        // Set same?
+        mmf.same = if pos
+            .last_move()
+            .map(|last| to == last.to())
+            .unwrap_or_default()
+        {
+            Some(true)
         } else {
-            mmf.from = None;
-        }
+            None
+        };
+        // Set promote?
+        mmf.promote = if from_piece_kind.promote().is_some()
+            && (from.relative_rank(pos.side_to_move()) <= 3
+                || to.relative_rank(pos.side_to_move()) <= 3)
+        {
+            Some(from_piece_kind != to_piece_kind)
+        } else {
+            None
+        };
+        // Set capture?
+        mmf.capture = pos.piece_at(to).map(|p| pk2k(p.piece_kind()));
     }
     let mv = match shogi_core::Move::try_from(&*mmf) {
         Ok(mv) => mv,

@@ -240,6 +240,32 @@ mod tests {
     }
 
     #[test]
+    fn off_board_move_square_is_not_a_drop() {
+        // `normalize_move` used to fall back to `from: None` for any from-square it could
+        // not convert, so an off-board origin was read as a drop of the named piece.
+        for csa in ["V2.2\nPI\n+\n+0576FU\n", "V2.2\nPI\n+\n+7770FU\n"] {
+            let err = parse_csa_str(csa).expect_err(csa);
+            assert!(matches!(err, ParseError::CsaConvert(_)), "{err:?}");
+        }
+        // With that piece in hand the made-up drop was a legal move, and the record was
+        // accepted with a move it does not contain.
+        let csa = "V2.2\nP+59OU\nP-51OU\nP+00FU\n+\n+0576FU\n";
+        let err = parse_csa_str(csa).expect_err("off-board origin");
+        assert!(matches!(err, ParseError::CsaConvert(_)), "{err:?}");
+        // `00` is the from-square of a real drop, and still reads as one.
+        let csa = "V2.2\nP+59OU\nP-51OU\nP+00FU\n+\n+0076FU\n";
+        let jkf = parse_csa_str(csa).expect("should parse");
+        assert_eq!(jkf.moves[1].move_.map(|m| m.from), Some(None));
+
+        // KIF's `(90)` took the same path.
+        let kif = "手合割：その他\n後手の持駒：なし\n  ９ ８ ７ ６ ５ ４ ３ ２ １\n+---------------------------+\n| ・ ・ ・ ・v玉 ・ ・ ・ ・|一\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|二\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|三\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|四\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|五\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|六\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|七\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|八\n| ・ ・ ・ ・ 玉 ・ ・ ・ ・|九\n+---------------------------+\n先手の持駒：歩\n手数----指手---------消費時間--\n   1 ７六歩(90)\n";
+        let err = parse_kif_str(kif).expect_err("off-board origin");
+        assert!(matches!(err, ParseError::Normalize(_)), "{err:?}");
+        let kif = kif.replace("７六歩(90)", "７六歩打");
+        assert!(parse_kif_str(&kif).is_ok());
+    }
+
+    #[test]
     fn kif_declined_promotion() {
         // A `不成` move line used to fail to parse, which stopped `many1` and left the
         // rest of the file unconsumed — the call still returned `Ok`, with the game
