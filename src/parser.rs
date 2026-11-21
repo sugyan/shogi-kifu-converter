@@ -342,6 +342,20 @@ mod tests {
         let kif = "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n   2 投了\n   3 ７六歩(77)\n";
         let jkf = parse_kif_str(kif).expect("should parse");
         assert_eq!(jkf.to_usi_owned(), "startpos moves 7g7f");
+
+        // `moves[0]` is the initial position's comment slot, which `normalize` and the
+        // writers skip, but `Position::try_from` did not: a special there stopped it
+        // before the first move, and a move there was played.
+        let p76 = r#"{"color":0,"from":{"x":7,"y":7},"to":{"x":7,"y":6},"piece":"FU"}"#;
+        let p26 = r#"{"color":0,"from":{"x":2,"y":7},"to":{"x":2,"y":6},"piece":"FU"}"#;
+        for first in [
+            String::from(r#"{"special":"TORYO"}"#),
+            format!(r#"{{"move":{p76}}}"#),
+        ] {
+            let json = format!(r#"{{"header":{{}},"moves":[{first},{{"move":{p26}}}]}}"#);
+            let jkf = parse_jkf_str(&json).expect("should parse");
+            assert_eq!(jkf.to_usi_owned(), "startpos moves 2g2f", "{first}");
+        }
     }
 
     #[test]

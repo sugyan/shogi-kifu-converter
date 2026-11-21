@@ -127,7 +127,9 @@ impl TryFrom<&jkf::JsonKifuFormat> for Position {
         } else {
             Position::startpos()
         };
-        for mf in jkf.moves.iter() {
+        // `moves[0]` is the initial position's comment slot, which `normalize` and the
+        // writers skip too.
+        for mf in jkf.moves.iter().skip(1) {
             if let Some(mv) = &mf.move_ {
                 let mv = mv.try_into()?;
                 pos.make_move(mv).ok_or_else(|| {
