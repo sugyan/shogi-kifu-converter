@@ -4,6 +4,7 @@ use thiserror::Error;
 
 /// An error that can occur while converting from/into [`shogi_core::Position`]
 #[derive(Error, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum ConvertError {
     /// Board data is required if `preset` is [`PresetOther`](crate::jkf::Preset::PresetOther)
     #[error("Invalid initial board: no data with preset `OTHER`")]
@@ -21,6 +22,7 @@ pub enum ConvertError {
 
 /// An error that can occur while normalizing [`JsonKifuFormat`](crate::jkf::JsonKifuFormat)
 #[derive(Error, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum NormalizeError {
     /// Couldn't disambiguous the [`jkf::MoveMoveFormat.from`](crate::jkf::MoveMoveFormat::from)
     #[error("Move `from` is ambiguous: {0:?}")]
@@ -47,6 +49,7 @@ pub enum NormalizeError {
 
 /// An error that can occur while parsing kifu data
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum ParseError {
     /// From [`std::io::Error`]
     #[error(transparent)]
