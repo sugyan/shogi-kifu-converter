@@ -359,6 +359,24 @@ mod tests {
     }
 
     #[test]
+    fn kif_writer_leaves_out_empty_forks() {
+        use crate::converter::ToKif;
+
+        // An empty fork has no ply to write, and the KIF writer wrote a bare `変化` header
+        // for it. A second one could not be read back.
+        let p76 = r#"{"color":0,"from":{"x":7,"y":7},"to":{"x":7,"y":6},"piece":"FU"}"#;
+        let p34 = r#"{"color":1,"from":{"x":3,"y":3},"to":{"x":3,"y":4},"piece":"FU"}"#;
+        let json = format!(
+            r#"{{"header":{{}},"moves":[{{}},{{"move":{p76},"forks":[[],[]]}},{{"move":{p34}}}]}}"#
+        );
+        let jkf = parse_jkf_str(&json).expect("should parse");
+        let kif = jkf.to_kif_owned();
+        assert!(!kif.contains("変化"), "{kif}");
+        let reparsed = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{kif}: {e}"));
+        assert_eq!(reparsed.moves.len(), 3);
+    }
+
+    #[test]
     fn ki2_disambiguated_promotion() {
         use crate::converter::ToKi2;
         use crate::jkf::{PlaceFormat, Relative};

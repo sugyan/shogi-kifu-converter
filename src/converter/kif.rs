@@ -171,8 +171,13 @@ fn write_move_lines<W: Write>(
                 sink.write_char('\n')?;
             }
         }
-        if let Some(ref forks) = mf.forks {
-            for fork in forks {
+        // A fork with nothing to write would leave a bare 変化 header, and a second one
+        // does not read back.
+        for fork in mf.forks.iter().flatten() {
+            if fork
+                .iter()
+                .any(|mf| mf.move_.is_some() || mf.special.is_some())
+            {
                 forks_stack.push((i, fork));
             }
         }
