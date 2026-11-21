@@ -1,6 +1,6 @@
 use super::kakinoki::{write_header, write_initial, write_kansuji, write_sanyou_suji};
 use crate::jkf::*;
-use shogi_core::PartialPosition;
+use crate::normalizer::initial_side_to_move;
 use std::fmt::{Result, Write};
 
 /// A type that is convertible to KIF format.
@@ -29,11 +29,7 @@ impl ToKif for JsonKifuFormat {
         write_header(&self.header, sink)?;
         write_initial(&self.initial, false, sink)?;
         // KIF tells the sides apart only by the ply's parity, from whoever moves first.
-        let first = self
-            .initial
-            .as_ref()
-            .and_then(|initial| PartialPosition::try_from(initial).ok())
-            .map_or(Color::Black, |pos| pos.side_to_move().into());
+        let first = initial_side_to_move(self.initial.as_ref());
         write_moves(&self.moves, first, sink)?;
         Ok(())
     }

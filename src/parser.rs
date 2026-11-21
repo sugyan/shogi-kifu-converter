@@ -537,6 +537,19 @@ mod tests {
                 3,
                 SpecialIllegalActionBlack,
             ),
+            // A record that opens with one. `normalize` tells KIF's colours apart by the
+            // move at ply 1, and there is none, so the handicap's sign was left as if
+            // Black moved first.
+            (
+                String::from("手合割：平手\n手数----指手---------消費時間--\n   1 反則勝ち\n"),
+                1,
+                SpecialIllegalActionWhite,
+            ),
+            (
+                String::from("手合割：香落ち\n手数----指手---------消費時間--\n   1 反則勝ち\n"),
+                1,
+                SpecialIllegalActionBlack,
+            ),
         ] {
             let jkf = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{kif}: {e}"));
             assert_eq!(jkf.moves.len(), ply + 1, "{kif}");
@@ -544,6 +557,17 @@ mod tests {
             // The writer puts the same word back.
             assert_eq!(jkf.to_kif_owned(), kif);
         }
+        // The forks at that ply were left with those colours too, and their first move
+        // was rejected as the wrong side's.
+        let kif = "手合割：香落ち\n手数----指手---------消費時間--\n   1 中断\n\n変化：1手\n   1 ５四歩(53)\n   2 反則勝ち\n";
+        let jkf = parse_kif_str(kif).unwrap_or_else(|e| panic!("{e}"));
+        let fork = &jkf.moves[1].forks.as_ref().expect("a fork")[0];
+        assert_eq!(
+            fork[0].move_.map(|mmf| mmf.color),
+            Some(crate::jkf::Color::White)
+        );
+        assert_eq!(fork[1].special, Some(SpecialIllegalActionWhite));
+        assert_eq!(jkf.to_kif_owned(), kif);
 
         // A JKF (or CSA) foul names its side, which can be the side to move: an illegal 入玉
         // declaration, say. KIF writes that as the side to move's loss. Both used to come
@@ -715,6 +739,14 @@ mod tests {
                 format!("{opening}\n▲反則勝ち\n"),
                 10,
                 SpecialIllegalActionWhite,
+            ),
+            // With no move before it, the side to move is the initial position's. It used
+            // to be read and dropped.
+            (String::from("▲反則勝ち\n"), 2, SpecialIllegalActionWhite),
+            (
+                String::from("手合割：香落ち\n△反則勝ち\n"),
+                2,
+                SpecialIllegalActionBlack,
             ),
         ] {
             let jkf = parse_ki2_str(&ki2).unwrap_or_else(|e| panic!("{ki2}: {e}"));

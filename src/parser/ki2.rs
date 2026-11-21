@@ -3,6 +3,7 @@ use super::kakinoki::{
     special_word,
 };
 use crate::jkf::*;
+use crate::normalizer::initial_side_to_move;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::{digit1, line_ending, multispace0, not_line_ending, space0};
@@ -119,7 +120,10 @@ fn result_line(input: &str) -> IResult<&str, Option<MoveSpecial>, VerboseError<&
     )(input)
 }
 
-fn moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
+// `first` is the side to move in the initial position.
+fn moves<'a>(
+    first: Color,
+) -> impl FnMut(&'a str) -> IResult<&'a str, Vec<MoveFormat>, VerboseError<&'a str>> {
     map(
         tuple((
             preceded(many0(line_ending), opt(many1(move_comment_line))),
@@ -131,12 +135,18 @@ fn moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
             // writer leaves a blank line before them when the last move has its own.
             opt(many1(preceded(multispace0, move_comment_line))),
         )),
-        |(comments, mut v, token, made, trailing)| {
+        move |(comments, mut v, token, made, trailing)| {
             // The `まで…` line names the winner, so it is read over the token. The token's
-            // 反則勝ち is a win for the side to move, on the foul of whoever moved last.
+            // 反則勝ち is a win for the side to move, on the foul of whoever moved last, or
+            // with no move yet, of the side the initial position does not have to move.
             let special = made.flatten().or_else(|| match token? {
                 MoveSpecial::SpecialIllegalActionBlack | MoveSpecial::SpecialIllegalActionWhite => {
-                    v.last()?.move_.map(|mmf| match mmf.color {
+                    let offender = match v.last().and_then(|mf| mf.move_) {
+                        Some(mmf) => mmf.color,
+                        None if first == Color::Black => Color::White,
+                        None => Color::Black,
+                    };
+                    Some(match offender {
                         Color::Black => MoveSpecial::SpecialIllegalActionBlack,
                         Color::White => MoveSpecial::SpecialIllegalActionWhite,
                     })
@@ -163,7 +173,7 @@ fn moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
             }
             moves
         },
-    )(input)
+    )
 }
 
 pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifuFormat, VerboseError<&str>> {
@@ -171,10 +181,12 @@ pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifuFormat, VerboseError<&
     // anything it could not take, and the rest of the file was dropped without a word.
     // As for KIF, trailing `#` comment lines may be left over.
     all_consuming(terminated(
-        map(pair(parse_without_moves, moves), |(mut jkf, moves)| {
-            jkf.moves.extend(moves);
-            jkf
-        }),
+        |input| {
+            let (input, mut jkf) = parse_without_moves(input)?;
+            let (input, v) = moves(initial_side_to_move(jkf.initial.as_ref()))(input)?;
+            jkf.moves.extend(v);
+            Ok((input, jkf))
+        },
         pair(many0(preceded(multispace0, comment_line)), multispace0),
     ))(input)
 }
@@ -349,7 +361,7 @@ mod tests {
                     ..Default::default()
                 }]
             )),
-            moves("*comment\n")
+            moves(Color::Black)("*comment\n")
         );
         assert_eq!(
             Ok((
@@ -397,7 +409,7 @@ mod tests {
                     }
                 ]
             )),
-            moves("▲６八銀 △３四歩 ▲５六歩")
+            moves(Color::Black)("▲６八銀 △３四歩 ▲５六歩")
         )
     }
 
@@ -444,7 +456,7 @@ mod tests {
                     },
                 ]
             )),
-            moves(
+            moves(Color::Black)(
                 &r#"
 △７四歩
 *-2732

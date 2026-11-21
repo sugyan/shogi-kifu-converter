@@ -237,7 +237,9 @@ impl JsonKifuFormat {
         // KIF and KI2 have no colour on a move line and assign it from the ply's
         // parity, taking Black to move first. When the initial position says
         // otherwise every colour is inverted. This covers the handicap presets, which
-        // are always White to move, and a board diagram carrying a `後手番` line.
+        // are always White to move, and a board diagram carrying a `後手番` line. A KIF
+        // record that opens with a special has no move here to go by, so the KIF parser
+        // inverts that one itself.
         if pos.side_to_move() == shogi_core::Color::White
             && self
                 .moves
@@ -277,7 +279,7 @@ fn check_entries(moves: &[MoveFormat]) -> Result<(), NormalizeError> {
 // `normalize_moves` walks into a fork whose colours disagree with the position and
 // `normalize_move` rejects the whole record. KIF's 反則勝ち was given its side by the
 // same parity, so it is inverted along with the moves.
-fn invert_colors(moves: &mut [MoveFormat]) {
+pub(crate) fn invert_colors(moves: &mut [MoveFormat]) {
     for mf in moves {
         if let Some(mmf) = &mut mf.move_ {
             mmf.color = match mmf.color {
@@ -296,6 +298,15 @@ fn invert_colors(moves: &mut [MoveFormat]) {
             }
         }
     }
+}
+
+// The side to move in `initial`: White in a handicap, and whoever a board names. A
+// position that does not convert is taken as Black to move, like a missing one;
+// `normalize` rejects it anyway.
+pub(crate) fn initial_side_to_move(initial: Option<&Initial>) -> Color {
+    initial
+        .and_then(|initial| PartialPosition::try_from(initial).ok())
+        .map_or(Color::Black, |pos| pos.side_to_move().into())
 }
 
 fn normalize_initial(jkf: &mut JsonKifuFormat) -> Result<(), NormalizeError> {

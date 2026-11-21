@@ -3,6 +3,7 @@ use super::kakinoki::{
     special_word,
 };
 use crate::jkf::*;
+use crate::normalizer::{initial_side_to_move, invert_colors};
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::{digit1, line_ending, multispace0, not_line_ending, space0};
@@ -236,6 +237,15 @@ pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifuFormat, VerboseError<&
             pair(parse_without_moves, entire_moves),
             |(mut jkf, moves)| {
                 jkf.moves.extend(moves);
+                // The plies are coloured as if Black moved first. `normalize` inverts them
+                // when White does, and tells this parity by the move at ply 1. A record
+                // that opens with a special has none there, so it is done here: the side
+                // of a 反則勝ち, and the forks at that ply.
+                if initial_side_to_move(jkf.initial.as_ref()) == Color::White
+                    && jkf.moves.get(1).is_some_and(|mf| mf.move_.is_none())
+                {
+                    invert_colors(jkf.moves.get_mut(1..).unwrap_or_default());
+                }
                 jkf
             },
         ),
