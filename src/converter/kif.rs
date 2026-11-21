@@ -149,7 +149,9 @@ fn write_move_lines<W: Write>(
             offset += 2 * word.chars().count();
         }
         if let Some(time) = mf.time {
-            (0..13 - offset).try_for_each(|_| sink.write_char(' '))?;
+            // The widest move `normalize` lets through is 12 columns. A hand-built one can
+            // be wider (a promoted piece marked `promote`), and must not underflow.
+            (0..13usize.saturating_sub(offset)).try_for_each(|_| sink.write_char(' '))?;
             sink.write_fmt(format_args!(
                 "({:2}:{:02}/{:02}:{:02}:{:02})",
                 time.now.m,
@@ -211,6 +213,35 @@ mod tests {
 "#[1..],
             JsonKifuFormat::default().to_kif_owned()
         );
+    }
+
+    #[test]
+    fn wide_move_with_time() {
+        // `13 - offset` underflowed for a move wider than the column: a panic in debug,
+        // and a loop of 2^64 spaces in release. No normalized move is that wide.
+        let jkf = JsonKifuFormat {
+            moves: vec![
+                MoveFormat::default(),
+                MoveFormat {
+                    move_: Some(MoveMoveFormat {
+                        color: Color::Black,
+                        from: Some(PlaceFormat { x: 1, y: 3 }),
+                        to: PlaceFormat { x: 1, y: 2 },
+                        piece: Kind::NY,
+                        same: None,
+                        promote: Some(true),
+                        capture: None,
+                        relative: None,
+                    }),
+                    time: Some(Time::default()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        assert!(jkf
+            .to_kif_owned()
+            .contains("   1 １二成香成(13)( 0:00/00:00:00)\n"));
     }
 
     #[test]
