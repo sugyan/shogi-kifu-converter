@@ -167,8 +167,8 @@ fn write_move_lines<W: Write>(
                 sink.write_char('\n')?;
             }
         }
-        // A fork with nothing to write would leave a bare 変化 header, and a second one
-        // does not read back.
+        // A fork with nothing to write would leave a bare 変化 header, and two of those
+        // after the last block of moves do not read back.
         for fork in mf.forks.iter().flatten() {
             if fork
                 .iter()

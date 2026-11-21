@@ -209,20 +209,22 @@ fn pk2k(pk: shogi_core::PieceKind) -> Kind {
 }
 
 impl JsonKifuFormat {
-    /// Replays the record from its initial position and fills in what the source format
-    /// left implicit (the from-square, `same`, `promote`, `capture`, `relative` and the
-    /// total times), so that every parser hands back the same shape for the same game.
+    /// Replays the record from its initial position, each line up to its first special,
+    /// and fills in what the source format left implicit (the from-square, `same`,
+    /// `promote`, `capture`, `relative` and the total times), so that every parser hands
+    /// back the same shape for the same game. What follows a special is not replayed.
     ///
     /// The `parse_*` functions call this. A value built by hand, or deserialized without
     /// [`parse_jkf_str`](crate::parser::parse_jkf_str), should go through it before it is
-    /// written out: the writers render what this accepts, and only as much of anything
-    /// else as their format can express.
+    /// written out: the writers rely on what this fills in, and write anything else only
+    /// as far as their format can express it.
     ///
     /// # Errors
     ///
-    /// Returns [`NormalizeError`] if the record cannot be replayed from its initial
-    /// position, if a hand in it holds more than 99 of a piece (the most a kifu can spell),
-    /// or if a move entry past `moves[0]` has neither `move` nor `special`.
+    /// Returns [`NormalizeError`] if a line cannot be replayed from its initial position
+    /// up to its first special, if a hand in it holds more than 99 of a piece (the most a
+    /// kifu can spell), or if a move entry past `moves[0]` has neither `move` nor
+    /// `special`.
     pub fn normalize(&mut self) -> Result<(), NormalizeError> {
         check_entries(self.moves.get(1..).unwrap_or_default())?;
         normalize_initial(self)?;
@@ -259,9 +261,9 @@ impl JsonKifuFormat {
 
 // Every entry past `moves[0]` stands for a ply, so it carries a move or a special (a fork
 // has no `moves[0]` of its own). The writers have nothing to write for one that does not
-// and leave it out, comments and time included, with no way to say so, so it is rejected
-// here, where an error can be returned. `normalize_moves` stops at the first special, so
-// this walks the whole tree itself.
+// and leave it out, comments, time and forks included, with no way to say so, so it is
+// rejected here, where an error can be returned. `normalize_moves` stops at the first
+// special, so this walks the whole tree itself.
 fn check_entries(moves: &[MoveFormat]) -> Result<(), NormalizeError> {
     for mf in moves {
         if mf.move_.is_none() && mf.special.is_none() {

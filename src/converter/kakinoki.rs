@@ -19,12 +19,13 @@ pub(super) fn write_sanyou_suji<W: Write>(num: u8, sink: &mut W) -> Result {
     Ok(())
 }
 
-/// Ranks are always 1..=9, but a hand count runs up to [`MAX_HAND_COUNT`], so spell the
-/// tens place too. Writes nothing for 0, which no caller reaches.
+/// A rank is 1..=9, but a hand count runs up to [`MAX_HAND_COUNT`], so spell the tens
+/// place too. Writes nothing for 0.
 ///
-/// `normalize` rejects a larger count, so the clamp below only bites on a hand-built
-/// value: this returns `fmt::Result` and has no way to say which piece it could not
-/// write, so it must not panic either.
+/// `normalize` rejects a larger count, and replays every move up to the first special,
+/// so the clamp below and 0 come only from a hand-built value or a move after a special:
+/// this returns `fmt::Result` and has no way to say which piece it could not write, so
+/// it must not panic either.
 pub(super) fn write_kansuji<W: Write>(num: u8, sink: &mut W) -> Result {
     let num = num.min(MAX_HAND_COUNT);
     let (tens, ones) = (num / 10, num % 10);
@@ -257,8 +258,9 @@ mod tests {
 
     #[test]
     fn kansuji_out_of_range() {
-        // The clamp is what a hand-built count or rank gets, in debug builds too: a debug
-        // assertion in front of it made the writers panic there.
+        // The clamp is what a hand-built count or rank gets, and so does a rank after a
+        // special, in debug builds too: a debug assertion in front of it made the
+        // writers panic there.
         let mut s = String::new();
         write_kansuji(u8::MAX, &mut s).expect("writing to a String cannot fail");
         assert_eq!(s, "九十九");

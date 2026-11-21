@@ -74,9 +74,9 @@ fn result_token(input: &str) -> IResult<&str, MoveSpecial, VerboseError<&str>> {
     preceded(alt((tag("▲"), tag("△"))), special_word)(input)
 }
 
-// KI2 has no move line for how a game ended: the `まで…` line that closes the record says
-// it. A wording not listed here still closes the record, since the moves are all there,
-// but it gives no special.
+// Shogi DB2's token aside, KI2 has no move line for how a game ended: the `まで…` line
+// that closes the record says it. A wording not listed here still closes the record,
+// since the moves are all there, but it gives no special.
 //
 // Each wording names the side Kifu for Windows and tsshogi name for it, and the name is
 // read only for 反則勝ち, where JKF needs to know whose foul it was. json-kifu-format and
@@ -167,7 +167,8 @@ fn moves<'a>(
                 v,
             ]
             .concat();
-            // They belong to the last entry: the special, or else the last move.
+            // They belong to the last entry: the special, else the last move, else
+            // `moves[0]`.
             if let (Some(trailing), Some(last)) = (trailing, moves.last_mut()) {
                 last.comments.get_or_insert_with(Vec::new).extend(trailing);
             }

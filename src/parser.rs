@@ -621,8 +621,8 @@ mod tests {
     fn ki2_result_line() {
         use crate::jkf::MoveSpecial::*;
 
-        // The `まで…` line is the only place KI2 says how the game ended. It used to be left
-        // unread, so the special was lost.
+        // The `まで…` line is where KI2 says how the game ended (Shogi DB2 writes a token
+        // too, below). It used to be left unread, so the special was lost.
         let moves = "▲２六歩 △８四歩\n";
         for (line, special) in [
             ("まで2手で後手の勝ち", Some(SpecialToryo)),
@@ -1011,8 +1011,8 @@ mod tests {
                 .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
                 // Into KIF and KI2 from every format, not only back into its own. Into CSA
                 // only from CSA: the csa crate stops at a comment with no text or one
-                // holding a comma (`oui202106290101.kif` has both) and drops the rest
-                // without an error.
+                // holding a comma (`oui202106290101.kif` has empty ones) and drops the
+                // rest without an error.
                 let mut written = vec![
                     ("KIF", parse_kif_str(&original.to_kif_owned())),
                     ("KI2", parse_ki2_str(&original.to_ki2_owned())),
