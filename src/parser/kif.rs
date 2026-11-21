@@ -1,5 +1,6 @@
 use super::kakinoki::{
-    move_comment_line, move_to, not_move_line, parse_without_moves, piece_kind, special_word,
+    comment_line, move_comment_line, move_to, not_move_line, parse_without_moves, piece_kind,
+    special_word,
 };
 use crate::jkf::*;
 use nom::branch::alt;
@@ -137,7 +138,7 @@ fn move_line(input: &str) -> IResult<&str, (usize, MoveFormat), VerboseError<&st
 
 fn move_with_comments(input: &str) -> IResult<&str, (usize, MoveFormat), VerboseError<&str>> {
     map(
-        pair(move_line, many0(move_comment_line)),
+        pair(move_line, many0(preceded(multispace0, move_comment_line))),
         |((i, mf), comments)| {
             (
                 i,
@@ -152,7 +153,14 @@ fn move_with_comments(input: &str) -> IResult<&str, (usize, MoveFormat), Verbose
 
 fn moves_with_index(input: &str) -> IResult<&str, (usize, Vec<MoveFormat>), VerboseError<&str>> {
     map(
-        terminated(many1(move_with_comments), opt(not_move_line)),
+        // Blank lines mean nothing between the moves, their comments and the line after
+        // them (`まで…`, a 変化 header). They used to: with LF, `not_move_line` read a blank
+        // line and the next one as one line, and the move or comment on it was lost; with
+        // CRLF it read a blank line on its own, in the place of `まで…`.
+        terminated(
+            many1(preceded(multispace0, move_with_comments)),
+            opt(preceded(multispace0, not_move_line)),
+        ),
         |v| (v[0].0, v.into_iter().map(|(_, mf)| mf).collect()),
     )(input)
 }
@@ -221,8 +229,8 @@ fn entire_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str
 
 pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifuFormat, VerboseError<&str>> {
     // All of the input has to be read. A line no rule takes used to end the moves there,
-    // and everything after it was dropped without a word. Only trailing whitespace may be
-    // left over.
+    // and everything after it was dropped without a word. Only trailing whitespace and
+    // `#` comment lines may be left over: IS-SHOGI ends a record with one.
     all_consuming(terminated(
         map(
             pair(parse_without_moves, entire_moves),
@@ -231,7 +239,7 @@ pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifuFormat, VerboseError<&
                 jkf
             },
         ),
-        multispace0,
+        pair(many0(preceded(multispace0, comment_line)), multispace0),
     ))(input)
 }
 

@@ -1,5 +1,6 @@
 use super::kakinoki::{
-    color_prefix, move_comment_line, move_to, parse_without_moves, piece_kind, special_word,
+    color_prefix, comment_line, move_comment_line, move_to, parse_without_moves, piece_kind,
+    special_word,
 };
 use crate::jkf::*;
 use nom::branch::alt;
@@ -167,12 +168,13 @@ fn moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
 pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifuFormat, VerboseError<&str>> {
     // All of the input has to be read, as for KIF: `many0(single_move)` used to stop at
     // anything it could not take, and the rest of the file was dropped without a word.
+    // As for KIF, trailing `#` comment lines may be left over.
     all_consuming(terminated(
         map(pair(parse_without_moves, moves), |(mut jkf, moves)| {
             jkf.moves.extend(moves);
             jkf
         }),
-        multispace0,
+        pair(many0(preceded(multispace0, comment_line)), multispace0),
     ))(input)
 }
 

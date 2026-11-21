@@ -55,7 +55,7 @@ impl InformationData {
     }
 }
 
-fn comment_line(input: &str) -> IResult<&str, String, VerboseError<&str>> {
+pub(super) fn comment_line(input: &str) -> IResult<&str, String, VerboseError<&str>> {
     map(
         delimited(tag("#"), not_line_ending, line_ending),
         String::from,

@@ -415,6 +415,45 @@ mod tests {
     }
 
     #[test]
+    fn kif_blank_lines_and_comment_lines() {
+        // A blank line was read as a line of its own with CRLF, and together with the next
+        // line with LF. So with CRLF it took the one place for a line after the moves, and
+        // a `まで…` after it was unread input; with LF, a move or comment after it was
+        // lost. Blank lines now mean nothing in between the moves.
+        let moves = [
+            "手合割：平手",
+            "手数----指手---------消費時間--",
+            "   1 ７六歩(77)",
+            "",
+            "   2 ３四歩(33)",
+            "",
+            "*二手目",
+            "   3 投了",
+        ];
+        // `#` lines are comments, and IS-SHOGI ends a record with one.
+        for eol in ["\n", "\r\n"] {
+            for tail in [
+                &["", "まで2手で後手の勝ち"][..],
+                &["まで2手で後手の勝ち", "#コメント"],
+                &["", "", "まで2手で後手の勝ち", "", "#コメント", ""],
+            ] {
+                let kif = [&moves[..], tail, &[""]].concat().join(eol);
+                let jkf = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{kif:?}: {e}"));
+                assert_eq!(jkf.moves.len(), 4, "{kif:?}");
+                assert_eq!(
+                    jkf.moves[2].comments,
+                    Some(vec![String::from("二手目")]),
+                    "{kif:?}"
+                );
+            }
+        }
+        // Even a record with no moves.
+        let kif = "手合割：平手\n手数----指手---------消費時間--\n#--separator--\n";
+        let jkf = parse_kif_str(kif).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(jkf.moves.len(), 1);
+    }
+
+    #[test]
     fn kif_fouls_and_unsolved_mates() {
         use crate::converter::ToKif;
         use crate::jkf::MoveSpecial::*;
@@ -569,6 +608,10 @@ mod tests {
                 comments(&["投了図", "&終局"]),
                 "{eol:?}"
             );
+            // `#` lines are comments, as in KIF.
+            let jkf = parse_ki2_str(&format!("{ki2}#コメント{eol}"))
+                .unwrap_or_else(|e| panic!("{eol:?}: {e}"));
+            assert_eq!(jkf.moves.len(), 4, "{eol:?}");
         }
         // With no `まで…` line, comments past a blank line go to the last move. This
         // crate's writer leaves a blank line before a special's comments when the last
