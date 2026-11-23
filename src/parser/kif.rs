@@ -166,23 +166,28 @@ fn moves_with_index(input: &str) -> IResult<&str, (usize, Vec<MoveFormat>), Verb
     )(input)
 }
 
-fn main_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
+// Also returns the number of the first move line, if there is one.
+fn main_moves(input: &str) -> IResult<&str, (Option<usize>, Vec<MoveFormat>), VerboseError<&str>> {
     map(
         pair(opt(many1(move_comment_line)), opt(moves_with_index)),
         |(comments, o)| {
-            [
-                vec![MoveFormat {
-                    comments,
-                    ..Default::default()
-                }],
-                o.map_or(Vec::new(), |(_, v)| v),
-            ]
-            .concat()
+            let (first, moves) = match o {
+                Some((i, v)) => (Some(i), v),
+                None => (None, Vec::new()),
+            };
+            let initial = MoveFormat {
+                comments,
+                ..Default::default()
+            };
+            (first, [vec![initial], moves].concat())
         },
     )(input)
 }
 
-fn entire_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
+// Also returns the number of the first move line of the main line, if there is one.
+fn entire_moves(
+    input: &str,
+) -> IResult<&str, (Option<usize>, Vec<MoveFormat>), VerboseError<&str>> {
     // The ply a fork branches at is the number printed in the file, so it can name a
     // ply that does not exist in the line it attaches to. Returns `None` in that case
     // instead of indexing out of bounds.
@@ -224,7 +229,7 @@ fn entire_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str
             preceded(opt(not_move_line), main_moves),
             many0(preceded(many0(not_move_line), moves_with_index)),
         ),
-        merge_forks,
+        |((first, moves), forks)| Some((first, merge_forks((moves, forks))?)),
     )(input)
 }
 
@@ -235,13 +240,16 @@ pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifuFormat, VerboseError<&
     all_consuming(terminated(
         map(
             pair(parse_without_moves, entire_moves),
-            |(mut jkf, moves)| {
+            |(mut jkf, (first, moves))| {
                 jkf.moves.extend(moves);
-                // The plies are coloured as if Black moved first. `normalize` inverts them
-                // when White does, and tells this parity by the move at ply 1. A record
-                // that opens with a special has none there, so it is done here: the side
-                // of a 反則勝ち, and the forks at that ply.
+                // The plies are coloured by the parity of their numbers, Black at the odd
+                // ones. `normalize` inverts them when White is to move and the move at ply
+                // 1 is coloured Black, which it is when the record numbers that ply odd. A
+                // record that opens with a special has no move there to go by, so it is
+                // done here from the number: the side of a 反則勝ち, and the forks at that
+                // ply.
                 if initial_side_to_move(jkf.initial.as_ref()) == Color::White
+                    && first.is_some_and(|i| i % 2 == 1)
                     && jkf.moves.get(1).is_some_and(|mf| mf.move_.is_none())
                 {
                     invert_colors(jkf.moves.get_mut(1..).unwrap_or_default());
@@ -517,6 +525,10 @@ mod tests {
 3 中断 ( 0:03/ 0:00:19)
 "#[1..],
             )
+            .map(|(rest, (first, moves))| {
+                assert_eq!(first, Some(1));
+                (rest, moves)
+            })
         );
         assert_eq!(
             Ok((
@@ -558,6 +570,10 @@ mod tests {
   1 ２六歩(27) ( 0:01/00:00:01)
 "#[1..]
             )
+            .map(|(rest, (first, moves))| {
+                assert_eq!(first, Some(1));
+                (rest, moves)
+            })
         )
     }
 
@@ -605,8 +621,9 @@ mod tests {
   15 ７七銀(68)    (00:00 / 00:00:00)
 "#[1..];
         let ret = entire_moves(input);
-        let (rest, moves) = ret.expect("failed to parse");
+        let (rest, (first, moves)) = ret.expect("failed to parse");
         assert!(rest.is_empty());
+        assert_eq!(first, Some(1));
         assert_eq!(13, moves.len());
         for (i, m) in moves.iter().enumerate() {
             match i {

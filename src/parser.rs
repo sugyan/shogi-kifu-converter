@@ -846,6 +846,24 @@ mod tests {
         assert_eq!(data.color, Color::Black);
         assert_eq!(jkf.moves[1].move_.map(|m| m.color), Some(Color::Black));
         assert_eq!(jkf.to_kif_owned(), kif);
+
+        // A `後手番` record can number its first line 2, and the parity then already gives
+        // White its move. A 反則勝ち there was inverted all the same, so the win went to
+        // the side not to move, and the writer put it back as 反則負け.
+        let head = format!("{board}後手番\n手数----指手---------消費時間--\n");
+        for first in ["   1 反則勝ち\n", "   2 反則勝ち\n"] {
+            let jkf =
+                parse_kif_str(&format!("{head}{first}")).unwrap_or_else(|e| panic!("{first}: {e}"));
+            assert_eq!(
+                jkf.moves[1].special,
+                Some(crate::jkf::MoveSpecial::SpecialIllegalActionBlack),
+                "{first}"
+            );
+            // The writer numbers from 1, and that reads back the same.
+            let written = jkf.to_kif_owned();
+            assert_eq!(written, format!("{head}   1 反則勝ち\n"), "{first}");
+            assert_eq!(parse_kif_str(&written).ok(), Some(jkf), "{first}");
+        }
     }
 
     #[test]
