@@ -185,13 +185,13 @@ pub(super) fn write_initial<W: Write>(
     sink: &mut W,
 ) -> Result {
     if let Some(initial) = initial {
-        if let Some(data) = &initial.data {
-            write_initial_data(data, sink)?;
-        } else {
-            if omit_hirate && initial.preset == Preset::PresetHirate {
-                return Ok(());
-            }
-            write_initial_preset(initial.preset, sink)?;
+        // JKF reads `data` only with the OTHER preset, and so do the replay, `to_usi` and
+        // the side the KIF writer counts the plies from. A board next to another preset
+        // is not the position.
+        match (initial.preset, &initial.data) {
+            (Preset::PresetOther, Some(data)) => write_initial_data(data, sink)?,
+            (Preset::PresetHirate, _) if omit_hirate => {}
+            (preset, _) => write_initial_preset(preset, sink)?,
         }
     }
     Ok(())

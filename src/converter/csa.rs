@@ -158,7 +158,8 @@ fn write_initial_preset<W: Write>(preset: Preset, squares: &[Square], sink: &mut
 
 fn write_initial<W: Write>(initial: &Option<Initial>, sink: &mut W) -> Result {
     if let Some(initial) = initial {
-        if let Some(data) = &initial.data {
+        // As for KIF: `data` is the position only with the OTHER preset.
+        if let (Preset::PresetOther, Some(data)) = (initial.preset, &initial.data) {
             write_initial_data(data, sink)?;
         } else if let Some(squares) = handicap_squares(initial.preset) {
             write_initial_preset(initial.preset, squares, sink)?;

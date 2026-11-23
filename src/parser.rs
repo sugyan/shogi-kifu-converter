@@ -867,6 +867,56 @@ mod tests {
     }
 
     #[test]
+    fn a_board_next_to_a_preset_is_not_written() {
+        use crate::converter::{ToCsa, ToKi2, ToKif};
+        use shogi_core::ToUsi;
+
+        // JKF reads `data` only with the OTHER preset. The replay, `to_usi` and the side
+        // the KIF writer counts the plies from followed the preset, but the writers wrote
+        // the board: here two kings and nothing else, before a pawn move from 7七.
+        let file = |x| {
+            let cells = (1..=9).map(|y| match (x, y) {
+                (5, 1) => r#"{"color":1,"kind":"OU"}"#,
+                (5, 9) => r#"{"color":0,"kind":"OU"}"#,
+                _ => "{}",
+            });
+            format!("[{}]", cells.collect::<Vec<_>>().join(","))
+        };
+        let board = format!("[{}]", (1..=9).map(file).collect::<Vec<_>>().join(","));
+        let hand = r#"{"FU":0,"KY":0,"KE":0,"GI":0,"KI":0,"KA":0,"HI":0}"#;
+        let record = |moves: &str| {
+            format!(
+                r#"{{"header":{{}},"initial":{{"preset":"HIRATE","data":{{"color":1,"board":{board},"hands":[{hand},{hand}]}}}},"moves":[{{}},{moves}]}}"#
+            )
+        };
+        let p76 = r#"{"color":0,"from":{"x":7,"y":7},"to":{"x":7,"y":6},"piece":"FU"}"#;
+        let jkf = parse_jkf_str(&record(&format!(r#"{{"move":{p76}}}"#))).expect("should parse");
+        assert_eq!(jkf.to_usi_owned(), "startpos moves 7g7f");
+        let kif = jkf.to_kif_owned();
+        assert!(kif.starts_with("手合割：平手\n"), "{kif}");
+        let (ki2, csa) = (jkf.to_ki2_owned(), jkf.to_csa_owned());
+        for back in [
+            parse_kif_str(&kif),
+            parse_ki2_str(&ki2),
+            parse_csa_str(&csa),
+        ] {
+            let back = back.unwrap_or_else(|e| panic!("{kif}{ki2}{csa}: {e}"));
+            assert_eq!(back.to_usi_owned(), "startpos moves 7g7f");
+        }
+
+        // The board says White is to move, so a foul was written for the wrong side and
+        // read back as the other side's.
+        let jkf = parse_jkf_str(&record(r#"{"special":"-ILLEGAL_ACTION"}"#)).expect("should parse");
+        let kif = jkf.to_kif_owned();
+        assert_eq!(
+            kif,
+            "手合割：平手\n手数----指手---------消費時間--\n   1 反則勝ち\n"
+        );
+        let back = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(back.moves[1].special, jkf.moves[1].special);
+    }
+
+    #[test]
     fn kif_hand_counts_round_trip() {
         use crate::converter::ToKif;
         use crate::error::NormalizeError;
