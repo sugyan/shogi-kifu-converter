@@ -282,6 +282,12 @@ mod tests {
         let kif = "手合割：その他\n後手の持駒：なし\n  ９ ８ ７ ６ ５ ４ ３ ２ １\n+---------------------------+\n| ・ ・ ・ ・v玉 ・ ・ ・ ・|一\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|二\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|三\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|四\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|五\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|六\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|七\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|八\n| ・ ・ ・ ・ 玉 ・ ・ ・ ・|九\n+---------------------------+\n先手の持駒：歩\n手数----指手---------消費時間--\n   1 ７六歩(90)\n";
         let err = parse_kif_str(kif).expect_err("off-board origin");
         assert!(matches!(err, ParseError::Normalize(_)), "{err:?}");
+        // `(00)` is not a square either, but it read as the marker `打` is read as.
+        for from in ["(00)", "(0)"] {
+            let kif = kif.replace("(90)", from);
+            let err = parse_kif_str(&kif).expect_err(from);
+            assert!(matches!(err, ParseError::Kif(_)), "{from}: {err:?}");
+        }
         let kif = kif.replace("７六歩(90)", "７六歩打");
         assert!(parse_kif_str(&kif).is_ok());
     }
