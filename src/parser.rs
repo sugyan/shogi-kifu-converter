@@ -490,6 +490,28 @@ mod tests {
         let kif = "手合割：平手\n手数----指手---------消費時間--\n#--separator--\n";
         let jkf = parse_kif_str(kif).unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(jkf.moves.len(), 1);
+
+        // The same went for the lines before a 変化 block. With LF, a blank line after
+        // the header took the fork's first move with it, and the rest of the fork moved
+        // to the next ply; a comment past a blank line after `まで…` was dropped, where
+        // CRLF rejected it.
+        let head = "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n   2 ３四歩(33)\n   3 ２六歩(27)\n";
+        for eol in ["\n", "\r\n"] {
+            let kif = format!("{head}\n変化：2手\n\n   2 ８四歩(83)\n   3 ２六歩(27)\n")
+                .replace('\n', eol);
+            let jkf = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{kif:?}: {e}"));
+            let forks = |i: usize| {
+                jkf.moves[i]
+                    .forks
+                    .as_ref()
+                    .map(|v| v.iter().map(Vec::len).collect::<Vec<_>>())
+            };
+            assert_eq!((forks(2), forks(3)), (Some(vec![2]), None), "{kif:?}");
+            let kif = format!("{head}まで3手で中断\n\n*コメント\n変化：2手\n   2 ８四歩(83)\n")
+                .replace('\n', eol);
+            let err = parse_kif_str(&kif).expect_err(&kif);
+            assert!(matches!(err, ParseError::Kif(_)), "{kif:?}: {err:?}");
+        }
     }
 
     #[test]

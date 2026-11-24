@@ -227,7 +227,13 @@ fn entire_moves(
             // so a greedy `many0` would eat a bookmark comment that belongs to
             // `main_moves` and so to `moves[0]`.
             preceded(opt(not_move_line), main_moves),
-            many0(preceded(many0(not_move_line), moves_with_index)),
+            // The lines before a 変化 block: its header, and whatever else no rule takes.
+            // Blank lines go first, since `not_move_line` would read one together with
+            // the line after it, a move included, when the line ending is LF.
+            many0(preceded(
+                many0(preceded(many0(pair(space0, line_ending)), not_move_line)),
+                moves_with_index,
+            )),
         ),
         |((first, moves), forks)| Some((first, merge_forks((moves, forks))?)),
     )(input)
