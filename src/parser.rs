@@ -350,8 +350,8 @@ mod tests {
         assert_eq!(jkf.to_usi_owned(), "startpos moves 7g7f");
 
         // `moves[0]` is the initial position's comment slot, which `normalize` and the
-        // writers skip, but `Position::try_from` did not: a special there stopped it
-        // before the first move, and a move there was played.
+        // writers skip, but `Position::try_from` played a move there. It now skips the
+        // slot, and stopping at the first special must not stop at one there either.
         let p76 = r#"{"color":0,"from":{"x":7,"y":7},"to":{"x":7,"y":6},"piece":"FU"}"#;
         let p26 = r#"{"color":0,"from":{"x":2,"y":7},"to":{"x":2,"y":6},"piece":"FU"}"#;
         for first in [
@@ -844,11 +844,17 @@ mod tests {
             ),
             // Any KIF word is taken, 封じ手 included.
             (format!("{opening} ▲封じ手\n"), 10, SpecialChudan),
-            // When the two disagree, the `まで…` line is read, whatever it says.
+            // When the two disagree, the `まで…` line is read if it names a result, and
+            // the token if it uses a wording this does not know.
             (
                 format!("{opening} ▲千日手\nまで8手で後手の勝ち"),
                 10,
                 SpecialToryo,
+            ),
+            (
+                format!("{opening} ▲千日手\nまで8手で終局"),
+                10,
+                SpecialSennichite,
             ),
             (
                 format!("{opening} ▲７八玉 △反則勝ち\nまで9手で先手の反則勝ち"),

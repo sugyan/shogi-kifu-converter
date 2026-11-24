@@ -145,8 +145,9 @@ fn write_move_lines<W: Write>(
             offset += 2 * word.chars().count();
         }
         if let Some(time) = mf.time {
-            // The widest move `normalize` lets through is 12 columns. A hand-built one can
-            // be wider (a promoted piece marked `promote`), and must not underflow.
+            // The widest move `normalize` replays is 12 columns. A hand-built one, or one
+            // after a special, can be wider (a promoted piece marked `promote`), and must
+            // not underflow.
             (0..13usize.saturating_sub(offset)).try_for_each(|_| sink.write_char(' '))?;
             sink.write_fmt(format_args!(
                 "({:2}:{:02}/{:02}:{:02}:{:02})",
@@ -219,7 +220,7 @@ mod tests {
     #[test]
     fn wide_move_with_time() {
         // `13 - offset` underflowed for a move wider than the column: a panic in debug,
-        // and a loop of 2^64 spaces in release. No normalized move is that wide.
+        // and a loop of 2^64 spaces in release. No move `normalize` replays is that wide.
         let jkf = JsonKifuFormat {
             moves: vec![
                 MoveFormat::default(),
