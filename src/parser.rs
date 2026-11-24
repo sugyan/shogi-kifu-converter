@@ -747,6 +747,51 @@ mod tests {
     }
 
     #[test]
+    fn ki2_comments_after_blank_lines() {
+        use crate::converter::ToKi2;
+        use crate::jkf::MoveSpecial::*;
+
+        // A comment past a blank line, or indented, belongs to the move before it, as in
+        // KIF. It was read only as a comment after the last move, so the moves after it
+        // were unread input and the record was rejected.
+        let comments = |v: &[&str]| Some(v.iter().map(|&s| String::from(s)).collect());
+        for ki2 in ["▲２六歩\n\n*c\n△３四歩\n", "▲２六歩\n  *c\n△３四歩\n"] {
+            let jkf = parse_ki2_str(ki2).unwrap_or_else(|e| panic!("{ki2:?}: {e}"));
+            assert_eq!(jkf.moves.len(), 3, "{ki2:?}");
+            assert_eq!(jkf.moves[1].comments, comments(&["c"]), "{ki2:?}");
+        }
+        // The same goes for the initial position's comments.
+        let jkf = parse_ki2_str("*c1\n\n*c2\n▲２六歩\n").unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(jkf.moves.len(), 2);
+        assert_eq!(jkf.moves[0].comments, comments(&["c1", "c2"]));
+        let opening = "▲２六歩 △３四歩 ▲７六歩 △５四歩 ▲４八銀 △５二飛 ▲６八玉 △５五歩";
+        let ki2 = format!("{opening}\n*c1\n\n*c2\nまで8手で後手の勝ち\n");
+        let jkf = parse_ki2_str(&ki2).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(jkf.moves.len(), 10);
+        assert_eq!(jkf.moves[8].comments, comments(&["c1", "c2"]));
+        assert_eq!(jkf.moves[9].special, Some(SpecialToryo));
+        // A Shogi DB2 token's comments are the special's.
+        let ki2 = format!("{opening} ▲７八玉 △投了\n*投了コメント\nまで9手で先手の勝ち\n");
+        let jkf = parse_ki2_str(&ki2).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(jkf.moves.len(), 11);
+        assert_eq!(jkf.moves[10].special, Some(SpecialToryo));
+        assert_eq!(jkf.moves[10].comments, comments(&["投了コメント"]));
+
+        // This crate's writer writes no special, and leaves a blank line before its
+        // comments when the move before it has comments too.
+        let p76 = r#"{"color":0,"from":{"x":7,"y":7},"to":{"x":7,"y":6},"piece":"FU"}"#;
+        let p34 = r#"{"color":1,"from":{"x":3,"y":3},"to":{"x":3,"y":4},"piece":"FU"}"#;
+        let json = format!(
+            r#"{{"header":{{}},"moves":[{{}},{{"move":{p76},"comments":["a"]}},{{"special":"CHUDAN","comments":["s"]}},{{"move":{p34}}}]}}"#
+        );
+        let written = parse_jkf_str(&json).expect("should parse").to_ki2_owned();
+        assert_eq!(written, "▲７六歩\n*a\n\n*s\n△３四歩\n");
+        let jkf = parse_ki2_str(&written).unwrap_or_else(|e| panic!("{written}: {e}"));
+        assert_eq!(jkf.moves.len(), 3);
+        assert_eq!(jkf.moves[1].comments, comments(&["a", "s"]));
+    }
+
+    #[test]
     fn ki2_result_token() {
         use crate::jkf::MoveSpecial::*;
 

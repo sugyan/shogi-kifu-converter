@@ -6,7 +6,7 @@ use crate::jkf::*;
 use crate::normalizer::initial_side_to_move;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
-use nom::character::complete::{digit1, line_ending, multispace0, not_line_ending, space0};
+use nom::character::complete::{digit1, line_ending, multispace0, not_line_ending};
 use nom::combinator::{all_consuming, map, opt, value};
 use nom::error::VerboseError;
 use nom::multi::{many0, many1};
@@ -37,10 +37,8 @@ fn single_move(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
                 value(Relative::H, tag("打")),
             ))),
             opt(alt((value(true, tag("成")), value(false, tag("不成"))))),
-            preceded(
-                tuple((space0, opt(line_ending))),
-                opt(many1(move_comment_line)),
-            ),
+            // A comment may come after a blank line, or indented, as in KIF.
+            opt(many1(preceded(multispace0, move_comment_line))),
         )),
         |(c, to, kind, relative, promote, comments)| {
             // To disambiguate `Normal` move or `Drop` move, "打" will be parsed as `Some(PlaceFormat { x: 0, y: 0 })`
@@ -126,16 +124,27 @@ fn moves<'a>(
 ) -> impl FnMut(&'a str) -> IResult<&'a str, Vec<MoveFormat>, VerboseError<&'a str>> {
     map(
         tuple((
-            preceded(many0(line_ending), opt(many1(move_comment_line))),
+            opt(many1(preceded(multispace0, move_comment_line))),
             // A blank line between moves does not end the game.
             many0(preceded(multispace0, single_move)),
-            opt(preceded(multispace0, result_token)),
+            // Comments after the token are the special's.
+            opt(preceded(
+                multispace0,
+                pair(
+                    result_token,
+                    many0(preceded(multispace0, move_comment_line)),
+                ),
+            )),
             opt(preceded(multispace0, result_line)),
-            // tsshogi writes a special's comments after the `まで…` line, and this crate's
-            // writer leaves a blank line before them when the last move has its own.
+            // tsshogi writes a special's comments after the `まで…` line.
             opt(many1(preceded(multispace0, move_comment_line))),
         )),
         move |(comments, mut v, token, made, trailing)| {
+            let (token, mut after) = match token {
+                Some((token, comments)) => (Some(token), comments),
+                None => (None, Vec::new()),
+            };
+            after.extend(trailing.into_iter().flatten());
             // The `まで…` line names the winner, so it is read over the token. The token's
             // 反則勝ち is a win for the side to move, on the foul of whoever moved last, or
             // with no move yet, of the side the initial position does not have to move.
@@ -169,8 +178,8 @@ fn moves<'a>(
             .concat();
             // They belong to the last entry: the special, else the last move, else
             // `moves[0]`.
-            if let (Some(trailing), Some(last)) = (trailing, moves.last_mut()) {
-                last.comments.get_or_insert_with(Vec::new).extend(trailing);
+            if let Some(last) = moves.last_mut().filter(|_| !after.is_empty()) {
+                last.comments.get_or_insert_with(Vec::new).extend(after);
             }
             moves
         },
