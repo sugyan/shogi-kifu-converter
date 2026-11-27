@@ -363,8 +363,9 @@ mod tests {
             assert_eq!(jkf.to_usi_owned(), "startpos moves 2g2f", "{first}");
         }
 
-        // A drop there keeps the `(0, 0)` mark the parsers give one, since `normalize` does
-        // not replay it, and the KIF writer wrote the mark as `(00)`, which is no square.
+        // A drop after a special keeps the `(0, 0)` mark the parsers give one, since
+        // `normalize` does not replay it, and the KIF writer wrote the mark as `(00)`,
+        // which is no square.
         use crate::converter::ToKif;
         let kif = "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n   2 ３四歩(33)\n   3 中断\n   4 ５五角打\n";
         let jkf = parse_kif_str(kif).expect("should parse");
@@ -373,6 +374,17 @@ mod tests {
         let written = parse_csa_str(csa).expect("should parse").to_kif_owned();
         assert!(written.ends_with("   3 中断\n   4 ５五角打\n"), "{written}");
         assert!(parse_kif_str(&written).is_ok(), "{written}");
+
+        // KI2 cannot write what follows a special, and wrote such a move as played: the
+        // drop read back as a bishop move from 8八, or as a second move in a row by White,
+        // which is an error.
+        use crate::converter::ToKi2;
+        for jkf in [parse_kif_str(kif), parse_csa_str(csa)] {
+            let jkf = jkf.expect("should parse");
+            let ki2 = jkf.to_ki2_owned();
+            let back = parse_ki2_str(&ki2).unwrap_or_else(|e| panic!("{ki2}: {e}"));
+            assert_eq!(back.to_usi_owned(), jkf.to_usi_owned(), "{ki2}");
+        }
     }
 
     #[test]
@@ -855,16 +867,17 @@ mod tests {
         }
 
         // This crate's writer writes no special, and leaves a blank line before its
-        // comments when the move before it has comments too.
+        // comments when the move before it has comments too. It stops there: what
+        // follows a special is not played, and the writer used to write it as played.
         let p76 = r#"{"color":0,"from":{"x":7,"y":7},"to":{"x":7,"y":6},"piece":"FU"}"#;
         let p34 = r#"{"color":1,"from":{"x":3,"y":3},"to":{"x":3,"y":4},"piece":"FU"}"#;
         let json = format!(
             r#"{{"header":{{}},"moves":[{{}},{{"move":{p76},"comments":["a"]}},{{"special":"CHUDAN","comments":["s"]}},{{"move":{p34}}}]}}"#
         );
         let written = parse_jkf_str(&json).expect("should parse").to_ki2_owned();
-        assert_eq!(written, "▲７六歩\n*a\n\n*s\n△３四歩\n");
+        assert_eq!(written, "▲７六歩\n*a\n\n*s\n\n");
         let jkf = parse_ki2_str(&written).unwrap_or_else(|e| panic!("{written}: {e}"));
-        assert_eq!(jkf.moves.len(), 3);
+        assert_eq!(jkf.moves.len(), 2);
         assert_eq!(jkf.moves[1].comments, comments(&["a", "s"]));
     }
 
