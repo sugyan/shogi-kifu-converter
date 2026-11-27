@@ -126,12 +126,17 @@ fn write_move_lines<W: Write>(
                 sink.write_char('成')?;
                 offset += 2;
             }
-            if let Some(from) = mv.from {
-                sink.write_fmt(format_args!("({}{})", from.x, from.y))?;
-                offset += 4;
-            } else {
-                sink.write_char('打')?;
-                offset += 2;
+            // `(0, 0)` is the parsers' mark for a drop, which `normalize` takes off only the
+            // moves it replays.
+            match mv.from {
+                Some(from) if from != PlaceFormat { x: 0, y: 0 } => {
+                    sink.write_fmt(format_args!("({}{})", from.x, from.y))?;
+                    offset += 4;
+                }
+                _ => {
+                    sink.write_char('打')?;
+                    offset += 2;
+                }
             }
         } else if let Some(special) = mf.special {
             let to_move = match (i % 2 == 1, first) {

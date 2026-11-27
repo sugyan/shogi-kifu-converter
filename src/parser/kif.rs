@@ -17,8 +17,8 @@ fn move_from(input: &str) -> IResult<&str, Option<PlaceFormat>, VerboseError<&st
     alt((
         // To disambiguate `Normal` move or `Drop` move, "打" will be parsed as `Some(PlaceFormat { x: 0, y: 0 })`
         value(Some(PlaceFormat { x: 0, y: 0 }), tag("打")),
-        // `(00)` would come out as that same marker and be read as a drop. Any other
-        // square off the board is rejected by `normalize`.
+        // `(00)` would come out as that same marker and be read as a drop. `normalize`
+        // rejects any other square off the board in the moves it replays.
         map_opt(
             delimited(tag("("), map_res(digit1, str::parse), tag(")")),
             |d: u8| {

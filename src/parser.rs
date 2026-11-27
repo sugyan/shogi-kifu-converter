@@ -362,6 +362,17 @@ mod tests {
             let jkf = parse_jkf_str(&json).expect("should parse");
             assert_eq!(jkf.to_usi_owned(), "startpos moves 2g2f", "{first}");
         }
+
+        // A drop there keeps the `(0, 0)` mark the parsers give one, since `normalize` does
+        // not replay it, and the KIF writer wrote the mark as `(00)`, which is no square.
+        use crate::converter::ToKif;
+        let kif = "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n   2 ３四歩(33)\n   3 中断\n   4 ５五角打\n";
+        let jkf = parse_kif_str(kif).expect("should parse");
+        assert_eq!(jkf.to_kif_owned(), kif);
+        let csa = "V2.2\nPI\n+\n+7776FU\n-3334FU\n%CHUDAN\n+0055KA\n";
+        let written = parse_csa_str(csa).expect("should parse").to_kif_owned();
+        assert!(written.ends_with("   3 中断\n   4 ５五角打\n"), "{written}");
+        assert!(parse_kif_str(&written).is_ok(), "{written}");
     }
 
     #[test]
