@@ -821,6 +821,19 @@ mod tests {
         assert_eq!(jkf.moves.len(), 11);
         assert_eq!(jkf.moves[10].special, Some(SpecialToryo));
         assert_eq!(jkf.moves[10].comments, comments(&["投了コメント"]));
+        // They may follow a blank line too, and come before the comments after `まで…`.
+        for (ki2, expected) in [
+            (
+                "▲７六歩 △投了\n\n*t\n\n  *t2\nまで1手で先手の勝ち\n\n*c\n",
+                &["t", "t2", "c"][..],
+            ),
+            ("▲７六歩 △投了\n*t\nまで1手で先手の勝ち\n*c\n", &["t", "c"]),
+        ] {
+            let jkf = parse_ki2_str(ki2).unwrap_or_else(|e| panic!("{ki2:?}: {e}"));
+            assert_eq!(jkf.moves.len(), 3, "{ki2:?}");
+            assert_eq!(jkf.moves[2].special, Some(SpecialToryo), "{ki2:?}");
+            assert_eq!(jkf.moves[2].comments, comments(expected), "{ki2:?}");
+        }
 
         // This crate's writer writes no special, and leaves a blank line before its
         // comments when the move before it has comments too.
