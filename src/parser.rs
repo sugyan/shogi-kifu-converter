@@ -556,6 +556,25 @@ mod tests {
                 assert_eq!(jkf.moves.len(), 2, "{kif:?}");
                 assert_eq!(jkf.moves[0].comments, comments, "{kif:?}");
             }
+            // Past a blank line, only a 手数 header is taken there. With no header, the
+            // line after the blank one was taken in its place and lost: the initial
+            // position's bookmark, a first move indented with a tab, or a header line,
+            // which a blank line among the header lines makes an error.
+            for (kif, comments) in [
+                (
+                    "手合割：平手\n\n&しおり\n   1 ７六歩(77)\n",
+                    Some(vec![String::from("&しおり")]),
+                ),
+                ("手合割：平手\n\n\t1 ７六歩(77)\n", None),
+            ] {
+                let kif = kif.replace('\n', eol);
+                let jkf = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{kif:?}: {e}"));
+                assert_eq!(jkf.moves.len(), 2, "{kif:?}");
+                assert_eq!(jkf.moves[0].comments, comments, "{kif:?}");
+            }
+            let kif = "先手：A\n\n手合割：香落ち\n   1 投了\n".replace('\n', eol);
+            let err = parse_kif_str(&kif).expect_err(&kif);
+            assert!(matches!(err, ParseError::Kif(_)), "{kif:?}: {err:?}");
         }
     }
 

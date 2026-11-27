@@ -7,7 +7,7 @@ use crate::normalizer::{initial_side_to_move, invert_colors};
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::{digit1, line_ending, multispace0, not_line_ending, space0};
-use nom::combinator::{all_consuming, map, map_opt, map_res, opt, value};
+use nom::combinator::{all_consuming, map, map_opt, map_res, not, opt, value};
 use nom::error::VerboseError;
 use nom::multi::{many0, many1};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
@@ -18,6 +18,11 @@ use nom::IResult;
 // ending is LF.
 fn blank_line(input: &str) -> IResult<&str, (), VerboseError<&str>> {
     value((), pair(space0, line_ending))(input)
+}
+
+// The header of the moves: `手数----指手---------消費時間--`.
+fn tesu_line(input: &str) -> IResult<&str, (), VerboseError<&str>> {
+    value((), tuple((tag("手数"), not_line_ending, line_ending)))(input)
 }
 
 fn move_from(input: &str) -> IResult<&str, Option<PlaceFormat>, VerboseError<&str>> {
@@ -236,10 +241,20 @@ fn entire_moves(
 
     map_opt(
         pair(
-            // Blank lines, then one line at most, the 手数 header: `not_move_line` does
-            // not exclude `&`, so a greedy `many0` would eat a bookmark comment that
-            // belongs to `main_moves` and so to `moves[0]`.
-            preceded(preceded(many0(blank_line), opt(not_move_line)), main_moves),
+            // The 手数 header, which may follow blank lines. With no header, one line no
+            // other rule takes is skipped in its place, as before, but only right after
+            // the header lines. Past a blank line it may be a bookmark, a move indented
+            // with a tab or a header line, and is left to the rules below, which read it
+            // or reject the record. One line at most, since `not_move_line` does not
+            // exclude `&`, and a greedy `many0` would eat a bookmark comment that belongs
+            // to `main_moves` and so to `moves[0]`.
+            preceded(
+                alt((
+                    preceded(many0(blank_line), tesu_line),
+                    value((), opt(preceded(not(blank_line), not_move_line))),
+                )),
+                main_moves,
+            ),
             // The lines before a 変化 block: its header, and whatever else no rule takes.
             many0(preceded(
                 many0(preceded(many0(blank_line), not_move_line)),
