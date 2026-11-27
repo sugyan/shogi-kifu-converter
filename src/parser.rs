@@ -529,6 +529,28 @@ mod tests {
             let err = parse_kif_str(&kif).expect_err(&kif);
             assert!(matches!(err, ParseError::Kif(_)), "{kif:?}: {err:?}");
         }
+
+        // And where the 手数 header goes. With LF, a blank line there was read together
+        // with the next line as the header, so a first move or an opening comment was
+        // lost; with CRLF, a header after it was not read.
+        for eol in ["\n", "\r\n"] {
+            for (kif, comments) in [
+                ("手合割：平手\n\n   1 ７六歩(77)\n", None),
+                (
+                    "手合割：平手\n\n*開始局面\n   1 ７六歩(77)\n",
+                    Some(vec![String::from("開始局面")]),
+                ),
+                (
+                    "手合割：平手\n\n手数----指手---------消費時間--\n   1 ７六歩(77)\n",
+                    None,
+                ),
+            ] {
+                let kif = kif.replace('\n', eol);
+                let jkf = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{kif:?}: {e}"));
+                assert_eq!(jkf.moves.len(), 2, "{kif:?}");
+                assert_eq!(jkf.moves[0].comments, comments, "{kif:?}");
+            }
+        }
     }
 
     #[test]

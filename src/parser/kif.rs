@@ -13,6 +13,13 @@ use nom::multi::{many0, many1};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
 use nom::IResult;
 
+// A blank line has to be read before `not_move_line` wherever that rule may meet one: it
+// reads a blank line together with the line after it, a move included, when the line
+// ending is LF.
+fn blank_line(input: &str) -> IResult<&str, (), VerboseError<&str>> {
+    value((), pair(space0, line_ending))(input)
+}
+
 fn move_from(input: &str) -> IResult<&str, Option<PlaceFormat>, VerboseError<&str>> {
     alt((
         // To disambiguate `Normal` move or `Drop` move, "打" will be parsed as `Some(PlaceFormat { x: 0, y: 0 })`
@@ -225,15 +232,13 @@ fn entire_moves(
 
     map_opt(
         pair(
-            // Exactly one line, the 手数 header: `not_move_line` does not exclude `&`,
-            // so a greedy `many0` would eat a bookmark comment that belongs to
-            // `main_moves` and so to `moves[0]`.
-            preceded(opt(not_move_line), main_moves),
+            // Blank lines, then one line at most, the 手数 header: `not_move_line` does
+            // not exclude `&`, so a greedy `many0` would eat a bookmark comment that
+            // belongs to `main_moves` and so to `moves[0]`.
+            preceded(preceded(many0(blank_line), opt(not_move_line)), main_moves),
             // The lines before a 変化 block: its header, and whatever else no rule takes.
-            // Blank lines go first, since `not_move_line` would read one together with
-            // the line after it, a move included, when the line ending is LF.
             many0(preceded(
-                many0(preceded(many0(pair(space0, line_ending)), not_move_line)),
+                many0(preceded(many0(blank_line), not_move_line)),
                 moves_with_index,
             )),
         ),
