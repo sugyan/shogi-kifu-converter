@@ -544,6 +544,12 @@ mod tests {
                     "手合割：平手\n\n手数----指手---------消費時間--\n   1 ７六歩(77)\n",
                     None,
                 ),
+                // The initial position's comments may follow a blank line or an indent too,
+                // like any move's and as in KI2. They made the record an error.
+                (
+                    "手合割：平手\n手数----指手---------消費時間--\n\n*c1\n\n  *c2\n   1 ７六歩(77)\n",
+                    Some(vec![String::from("c1"), String::from("c2")]),
+                ),
             ] {
                 let kif = kif.replace('\n', eol);
                 let jkf = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{kif:?}: {e}"));

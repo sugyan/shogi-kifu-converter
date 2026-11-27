@@ -178,7 +178,11 @@ fn moves_with_index(input: &str) -> IResult<&str, (usize, Vec<MoveFormat>), Verb
 // Also returns the number of the first move line, if there is one.
 fn main_moves(input: &str) -> IResult<&str, (Option<usize>, Vec<MoveFormat>), VerboseError<&str>> {
     map(
-        pair(opt(many1(move_comment_line)), opt(moves_with_index)),
+        // Like a move's comments, these may come after a blank line or an indent.
+        pair(
+            opt(many1(preceded(multispace0, move_comment_line))),
+            opt(moves_with_index),
+        ),
         |(comments, o)| {
             let (first, moves) = match o {
                 Some((i, v)) => (Some(i), v),
