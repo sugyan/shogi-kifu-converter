@@ -1064,6 +1064,34 @@ mod tests {
         );
         let back = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(back.moves[1].special, jkf.moves[1].special);
+
+        // `normalize` read the board all the same: one that is a handicap's layout was
+        // folded into that preset, and its hands were checked. So 角落ち next to the
+        // board of 香落ち was played and written as 香落ち, and 100 pawns in a hand
+        // nothing reads made the record an error.
+        use crate::jkf::{Initial, Preset};
+        use shogi_core::PartialPosition;
+        let pos = PartialPosition::try_from(&Initial {
+            preset: Preset::PresetKY,
+            data: None,
+        })
+        .expect("a preset converts");
+        let ky = serde_json::to_string(&Initial::from(&pos).data).expect("serializes");
+        let p34 = r#"{"color":1,"from":{"x":3,"y":3},"to":{"x":3,"y":4},"piece":"FU"}"#;
+        let ka = |data: &str| {
+            let json = format!(
+                r#"{{"header":{{}},"initial":{{"preset":"KA"{data}}},"moves":[{{}},{{"move":{p34}}}]}}"#
+            );
+            parse_jkf_str(&json).unwrap_or_else(|e| panic!("{json}: {e}"))
+        };
+        let (jkf, without) = (ka(&format!(r#","data":{ky}"#)), ka(""));
+        assert_eq!(jkf.to_usi_owned(), without.to_usi_owned());
+        let kif = jkf.to_kif_owned();
+        assert!(kif.starts_with("手合割：角落ち\n"), "{kif}");
+        let hand100 = r#"{"FU":100,"KY":0,"KE":0,"GI":0,"KI":0,"KA":0,"HI":0}"#;
+        let json = record(&format!(r#"{{"move":{p76}}}"#)).replacen(hand, hand100, 1);
+        let jkf = parse_jkf_str(&json).unwrap_or_else(|e| panic!("{json}: {e}"));
+        assert_eq!(jkf.to_usi_owned(), "startpos moves 7g7f");
     }
 
     #[test]

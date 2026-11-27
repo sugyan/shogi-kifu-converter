@@ -313,6 +313,11 @@ pub(crate) fn initial_side_to_move(initial: Option<&Initial>) -> Color {
 
 fn normalize_initial(jkf: &mut JsonKifuFormat) -> Result<(), NormalizeError> {
     if let Some(initial) = &mut jkf.initial {
+        // JKF reads `data` only with the OTHER preset, and so does the replay. Next to any
+        // other preset a board is not the position, so it is neither folded nor checked.
+        if initial.preset != Preset::PresetOther {
+            return Ok(());
+        }
         // A board that is exactly a handicap layout is stored by its name, whichever entry
         // point it came through.
         if let Some(data) = initial.data {
