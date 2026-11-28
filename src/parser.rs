@@ -9,6 +9,7 @@ use crate::jkf::JsonKifuFormat;
 use encoding_rs::{SHIFT_JIS, UTF_8};
 use nom::error::convert_error;
 use nom::Finish;
+use std::borrow::Cow;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
@@ -36,6 +37,17 @@ pub fn parse_csa_str(s: &str) -> Result<JsonKifuFormat, ParseError> {
         Err(ParseError::Normalize(err.to_string()))
     } else {
         Ok(jkf)
+    }
+}
+
+// The KIF and KI2 grammars read whole lines, each ending in a line ending, and reject
+// input they cannot read to the end. A last line without one would be left over:
+// `data/tests/kif/piyo-shogi_KY.kif` ends that way.
+fn with_final_line_ending(s: &str) -> Cow<'_, str> {
+    if s.is_empty() || s.ends_with('\n') {
+        Cow::Borrowed(s)
+    } else {
+        Cow::Owned(format!("{s}\n"))
     }
 }
 
@@ -71,7 +83,8 @@ pub fn parse_kif_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ParseEr
 ///
 /// This function returns [`ConvertError`](crate::error::ConvertError) if it fails to parse the string.
 pub fn parse_kif_str(s: &str) -> Result<JsonKifuFormat, ParseError> {
-    match kif::parse(s).finish() {
+    let s = with_final_line_ending(s);
+    match kif::parse(&s).finish() {
         Ok((_, mut jkf)) => {
             if let Err(err) = jkf.normalize() {
                 Err(ParseError::Normalize(err.to_string()))
@@ -79,7 +92,7 @@ pub fn parse_kif_str(s: &str) -> Result<JsonKifuFormat, ParseError> {
                 Ok(jkf)
             }
         }
-        Err(err) => Err(ParseError::Kif(convert_error(s, err))),
+        Err(err) => Err(ParseError::Kif(convert_error(&*s, err))),
     }
 }
 
@@ -115,7 +128,8 @@ pub fn parse_ki2_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ParseEr
 ///
 /// This function returns [`ConvertError`](crate::error::ConvertError) if it fails to parse the string.
 pub fn parse_ki2_str(s: &str) -> Result<JsonKifuFormat, ParseError> {
-    match ki2::parse(s).finish() {
+    let s = with_final_line_ending(s);
+    match ki2::parse(&s).finish() {
         Ok((_, mut jkf)) => {
             if let Err(err) = jkf.normalize() {
                 Err(ParseError::Normalize(err.to_string()))
@@ -123,7 +137,7 @@ pub fn parse_ki2_str(s: &str) -> Result<JsonKifuFormat, ParseError> {
                 Ok(jkf)
             }
         }
-        Err(err) => Err(ParseError::Ki2(convert_error(s, err))),
+        Err(err) => Err(ParseError::Ki2(convert_error(&*s, err))),
     }
 }
 
@@ -220,7 +234,14 @@ mod tests {
             let kif = format!("手合割：{name}\n手数----指手---------消費時間--\n");
             let jkf = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{name}: {e}"));
             assert_eq!(jkf.to_kif_owned(), kif, "{name}");
-            assert!(jkf.to_csa_owned().contains(pi), "{name}");
+            assert!(jkf.to_csa_owned().contains(&format!("\n{pi}\n")), "{name}");
+            // The same layout arriving as board data has to come back as the same preset.
+            // KY_R and the five presets above that used to panic stayed `PresetOther`, so
+            // `csa2kif` wrote a diagram where `kif2kif` wrote the name.
+            let turn = if name == "平手" { '+' } else { '-' };
+            let csa = parse_csa_str(&format!("V2.2\n{pi}\n{turn}\n"))
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(csa.initial, jkf.initial, "{name}");
             assert_eq!(parse_kif_str(&jkf.to_kif_owned()).ok(), Some(jkf), "{name}");
         }
     }
@@ -237,6 +258,705 @@ mod tests {
         let jkf = parse_csa_str("V2.2\nP+55FU\nP-51OU\nP+59OU\nP+00FU\n+\n").expect("in hand");
         let data = jkf.initial.and_then(|i| i.data).expect("initial data");
         assert_eq!(data.hands[0].FU, 1);
+    }
+
+    #[test]
+    fn off_board_move_square_is_not_a_drop() {
+        // `normalize_move` used to fall back to `from: None` for any from-square it could
+        // not convert, so an off-board origin was read as a drop of the named piece.
+        for csa in ["V2.2\nPI\n+\n+0576FU\n", "V2.2\nPI\n+\n+7770FU\n"] {
+            let err = parse_csa_str(csa).expect_err(csa);
+            assert!(matches!(err, ParseError::CsaConvert(_)), "{err:?}");
+        }
+        // With that piece in hand the made-up drop was a legal move, and the record was
+        // accepted with a move it does not contain.
+        let csa = "V2.2\nP+59OU\nP-51OU\nP+00FU\n+\n+0576FU\n";
+        let err = parse_csa_str(csa).expect_err("off-board origin");
+        assert!(matches!(err, ParseError::CsaConvert(_)), "{err:?}");
+        // `00` is the from-square of a real drop, and still reads as one.
+        let csa = "V2.2\nP+59OU\nP-51OU\nP+00FU\n+\n+0076FU\n";
+        let jkf = parse_csa_str(csa).expect("should parse");
+        assert_eq!(jkf.moves[1].move_.map(|m| m.from), Some(None));
+
+        // KIF's `(90)` took the same path.
+        let kif = "手合割：その他\n後手の持駒：なし\n  ９ ８ ７ ６ ５ ４ ３ ２ １\n+---------------------------+\n| ・ ・ ・ ・v玉 ・ ・ ・ ・|一\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|二\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|三\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|四\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|五\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|六\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|七\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|八\n| ・ ・ ・ ・ 玉 ・ ・ ・ ・|九\n+---------------------------+\n先手の持駒：歩\n手数----指手---------消費時間--\n   1 ７六歩(90)\n";
+        let err = parse_kif_str(kif).expect_err("off-board origin");
+        assert!(matches!(err, ParseError::Normalize(_)), "{err:?}");
+        // `(00)` is not a square either, but it read as the marker `打` is read as.
+        for from in ["(00)", "(0)"] {
+            let kif = kif.replace("(90)", from);
+            let err = parse_kif_str(&kif).expect_err(from);
+            assert!(matches!(err, ParseError::Kif(_)), "{from}: {err:?}");
+        }
+        let kif = kif.replace("７六歩(90)", "７六歩打");
+        assert!(parse_kif_str(&kif).is_ok());
+    }
+
+    #[test]
+    fn move_entry_with_neither_move_nor_special() {
+        use crate::converter::{ToCsa, ToKi2, ToKif};
+        use crate::jkf::{Initial, Preset};
+        use shogi_core::ToUsi;
+
+        // Every field of `MoveFormat` is optional, so `{}` deserializes, and
+        // `normalize_moves` stopped at one without a word. The KIF and CSA writers then
+        // hit `unreachable!()` on it, while KI2 quietly wrote nothing for it.
+        let p76 = r#"{"color":0,"from":{"x":7,"y":7},"to":{"x":7,"y":6},"piece":"FU"}"#;
+        let p34 = r#"{"color":1,"from":{"x":3,"y":3},"to":{"x":3,"y":4},"piece":"FU"}"#;
+        let record = |moves: &str| format!(r#"{{"header":{{}},"moves":[{{}},{moves}]}}"#);
+        for json in [
+            record("{}"),
+            // after a special, which `normalize_moves` does not replay
+            record(&format!(r#"{{"move":{p76}}},{{"special":"TORYO"}},{{}}"#)),
+            // inside a fork
+            record(&format!(r#"{{"move":{p76},"forks":[[{{}}]]}}"#)),
+        ] {
+            let err = parse_jkf_str(&json).expect_err(&json);
+            assert!(matches!(err, ParseError::Normalize(_)), "{json}: {err:?}");
+        }
+
+        // A value that never went through `normalize` must not panic a writer either: the
+        // entry is left out, as if it were not there.
+        let json = record(&format!(r#"{{"move":{p76}}},{{}},{{"move":{p34}}}"#));
+        let with = serde_json::from_str::<JsonKifuFormat>(&json).expect("deserializes");
+        let mut without = with.clone();
+        without.moves.remove(2);
+        assert_eq!(with.to_kif_owned(), without.to_kif_owned());
+        assert_eq!(with.to_csa_owned(), without.to_csa_owned());
+        assert_eq!(with.to_ki2_owned(), without.to_ki2_owned());
+        assert_eq!(with.to_usi_owned(), "startpos moves 7g7f 3c3d");
+
+        // `PresetOther` with no board has no position to write, in CSA or in USI.
+        let jkf = JsonKifuFormat {
+            initial: Some(Initial {
+                preset: Preset::PresetOther,
+                data: None,
+            }),
+            ..Default::default()
+        };
+        assert_eq!(jkf.to_csa_owned(), "V2.2\n");
+        assert_eq!(jkf.to_usi_owned(), "");
+    }
+
+    #[test]
+    fn moves_after_a_special_are_not_played() {
+        use shogi_core::ToUsi;
+
+        // `normalize` stops at the first special and does not check what follows it, but
+        // `Position::try_from` went on playing those moves, so a record the parser had
+        // accepted made `to_usi` panic.
+        let kif = "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n   2 投了\n   3 ７六歩(77)\n";
+        let jkf = parse_kif_str(kif).expect("should parse");
+        assert_eq!(jkf.to_usi_owned(), "startpos moves 7g7f");
+
+        // `moves[0]` is the initial position's comment slot, which `normalize` and the
+        // writers skip, but `Position::try_from` played a move there. It now skips the
+        // slot, and stopping at the first special must not stop at one there either.
+        let p76 = r#"{"color":0,"from":{"x":7,"y":7},"to":{"x":7,"y":6},"piece":"FU"}"#;
+        let p26 = r#"{"color":0,"from":{"x":2,"y":7},"to":{"x":2,"y":6},"piece":"FU"}"#;
+        for first in [
+            String::from(r#"{"special":"TORYO"}"#),
+            format!(r#"{{"move":{p76}}}"#),
+        ] {
+            let json = format!(r#"{{"header":{{}},"moves":[{first},{{"move":{p26}}}]}}"#);
+            let jkf = parse_jkf_str(&json).expect("should parse");
+            assert_eq!(jkf.to_usi_owned(), "startpos moves 2g2f", "{first}");
+        }
+
+        // A drop after a special keeps the `(0, 0)` mark the parsers give one, since
+        // `normalize` does not replay it, and the KIF writer wrote the mark as `(00)`,
+        // which is no square.
+        use crate::converter::ToKif;
+        let kif = "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n   2 ３四歩(33)\n   3 中断\n   4 ５五角打\n";
+        let jkf = parse_kif_str(kif).expect("should parse");
+        assert_eq!(jkf.to_kif_owned(), kif);
+        let csa = "V2.2\nPI\n+\n+7776FU\n-3334FU\n%CHUDAN\n+0055KA\n";
+        let written = parse_csa_str(csa).expect("should parse").to_kif_owned();
+        assert!(written.ends_with("   3 中断\n   4 ５五角打\n"), "{written}");
+        assert!(parse_kif_str(&written).is_ok(), "{written}");
+
+        // KI2 cannot write what follows a special, and wrote such a move as played: the
+        // drop read back as a bishop move from 8八, or as a second move in a row by White,
+        // which is an error.
+        use crate::converter::ToKi2;
+        for jkf in [parse_kif_str(kif), parse_csa_str(csa)] {
+            let jkf = jkf.expect("should parse");
+            let ki2 = jkf.to_ki2_owned();
+            let back = parse_ki2_str(&ki2).unwrap_or_else(|e| panic!("{ki2}: {e}"));
+            assert_eq!(back.to_usi_owned(), jkf.to_usi_owned(), "{ki2}");
+        }
+    }
+
+    #[test]
+    fn kif_writer_leaves_out_empty_forks() {
+        use crate::converter::ToKif;
+
+        // An empty fork has no ply to write, and the KIF writer wrote a bare `変化` header
+        // for it. A second one could not be read back.
+        let p76 = r#"{"color":0,"from":{"x":7,"y":7},"to":{"x":7,"y":6},"piece":"FU"}"#;
+        let p34 = r#"{"color":1,"from":{"x":3,"y":3},"to":{"x":3,"y":4},"piece":"FU"}"#;
+        let json = format!(
+            r#"{{"header":{{}},"moves":[{{}},{{"move":{p76},"forks":[[],[]]}},{{"move":{p34}}}]}}"#
+        );
+        let jkf = parse_jkf_str(&json).expect("should parse");
+        let kif = jkf.to_kif_owned();
+        assert!(!kif.contains("変化"), "{kif}");
+        let reparsed = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{kif}: {e}"));
+        assert_eq!(reparsed.moves.len(), 3);
+    }
+
+    #[test]
+    fn ki2_disambiguated_promotion() {
+        use crate::converter::ToKi2;
+        use crate::jkf::{PlaceFormat, Relative};
+
+        // Black silvers on 2四 and 4四 both reach 3三, inside the promotion zone, so the
+        // move needs a disambiguator and 成/不成 at once. The parser wanted 成/不成 first,
+        // the reverse of the official order its own writer uses: `▲３三銀左` was read,
+        // its promotion came back as 不成, and the rest of the game was dropped.
+        let board = "手合割：その他\n後手の持駒：なし\n  ９ ８ ７ ６ ５ ４ ３ ２ １\n+---------------------------+\n| ・ ・ ・ ・v玉 ・ ・ ・ ・|一\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|二\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|三\n| ・ ・ ・ ・ ・ 銀 ・ 銀 ・|四\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|五\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|六\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|七\n| ・ ・ ・ ・ ・ ・ ・ ・ ・|八\n| ・ ・ ・ ・ 玉 ・ ・ ・ ・|九\n+---------------------------+\n先手の持駒：なし\n";
+        for (mv, from, promote, relative) in [
+            ("▲３三銀左成", (4, 4), true, Relative::L),
+            ("▲３三銀右成", (2, 4), true, Relative::R),
+            ("▲３三銀左不成", (4, 4), false, Relative::L),
+        ] {
+            let ki2 = format!("{board}{mv} △５二玉\n");
+            let jkf = parse_ki2_str(&ki2).unwrap_or_else(|e| panic!("{mv}: {e}"));
+            assert_eq!(jkf.moves.len(), 3, "{mv}");
+            let m = jkf.moves[1].move_.expect("move");
+            assert_eq!(
+                (m.from, m.promote, m.relative),
+                (
+                    Some(PlaceFormat {
+                        x: from.0,
+                        y: from.1
+                    }),
+                    Some(promote),
+                    Some(relative)
+                ),
+                "{mv}"
+            );
+            // The writer spells it the same way, and that reads back.
+            let written = jkf.to_ki2_owned();
+            assert!(written.contains(mv), "{mv}: {written}");
+            assert_eq!(parse_ki2_str(&written).ok(), Some(jkf), "{mv}");
+        }
+
+        // From KIF the disambiguator is worked out from the position, and that stopped at
+        // the trailing 成: the KI2 writer got no disambiguator and wrote `▲３三銀成`,
+        // which cannot be read back.
+        let kif =
+            format!("{board}手数----指手---------消費時間--\n   1 ３三銀成(44)\n   2 ５二玉(51)\n");
+        let jkf = parse_kif_str(&kif).expect("should parse");
+        let written = jkf.to_ki2_owned();
+        assert!(written.contains("▲３三銀左成"), "{written}");
+        assert_eq!(parse_ki2_str(&written).ok(), Some(jkf));
+    }
+
+    #[test]
+    fn kif_unread_input_is_an_error() {
+        // `parse_kif_str` threw away whatever nom left unread, so a line no rule takes
+        // ended the game there and the call still returned `Ok`. KIF has no word for
+        // JKF's HIKIWAKE or MATTA, so these are not moves.
+        let head =
+            "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n   2 ３四歩(33)\n";
+        for line in ["   3 引き分け\n", "   3 待った\n", "   3 ２六歩(27\n"] {
+            let kif = format!("{head}{line}   4 ８四歩(83)\n");
+            let err = parse_kif_str(&kif).expect_err(line);
+            assert!(matches!(err, ParseError::Kif(_)), "{line}: {err:?}");
+        }
+        // Trailing blank lines are not unread input, and neither is a last line with no
+        // line ending, which used to be dropped.
+        for tail in ["\n\n", "  \n", "まで2手で中断", "   3 ２六歩(27)"] {
+            let kif = format!("{head}{tail}");
+            let jkf = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{tail:?}: {e}"));
+            let moves = if tail.ends_with("(27)") { 4 } else { 3 };
+            assert_eq!(jkf.moves.len(), moves, "{tail:?}");
+        }
+        // A `まで…` line closes the record: a line after it, a comment or a bookmark
+        // included, is unread input.
+        for line in ["終局", "*コメント", "&しおり"] {
+            let kif = format!("{head}まで2手で中断\n{line}\n");
+            let err = parse_kif_str(&kif).expect_err(line);
+            assert!(matches!(err, ParseError::Kif(_)), "{line}: {err:?}");
+        }
+    }
+
+    #[test]
+    fn kif_blank_lines_and_comment_lines() {
+        // A blank line was read as a line of its own with CRLF, and together with the next
+        // line with LF. So with CRLF it took the one place for a line after the moves, and
+        // a `まで…` after it was unread input; with LF, a move or comment after it was
+        // lost. Blank lines now mean nothing in between the moves.
+        let moves = [
+            "手合割：平手",
+            "手数----指手---------消費時間--",
+            "   1 ７六歩(77)",
+            "",
+            "   2 ３四歩(33)",
+            "",
+            "*二手目",
+            "   3 投了",
+        ];
+        // `#` lines are comments, and IS-SHOGI ends a record with one.
+        for eol in ["\n", "\r\n"] {
+            for tail in [
+                &["", "まで2手で後手の勝ち"][..],
+                &["まで2手で後手の勝ち", "#コメント"],
+                &["", "", "まで2手で後手の勝ち", "", "#コメント", ""],
+            ] {
+                let kif = [&moves[..], tail, &[""]].concat().join(eol);
+                let jkf = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{kif:?}: {e}"));
+                assert_eq!(jkf.moves.len(), 4, "{kif:?}");
+                assert_eq!(
+                    jkf.moves[2].comments,
+                    Some(vec![String::from("二手目")]),
+                    "{kif:?}"
+                );
+            }
+        }
+        // Even a record with no moves.
+        let kif = "手合割：平手\n手数----指手---------消費時間--\n#--separator--\n";
+        let jkf = parse_kif_str(kif).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(jkf.moves.len(), 1);
+
+        // The same went for the lines before a 変化 block. With LF, a blank line after
+        // the header took the fork's first move with it, and the rest of the fork moved
+        // to the next ply; a comment past a blank line after `まで…` was dropped, where
+        // CRLF rejected it.
+        let head = "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n   2 ３四歩(33)\n   3 ２六歩(27)\n";
+        for eol in ["\n", "\r\n"] {
+            let kif = format!("{head}\n変化：2手\n\n   2 ８四歩(83)\n   3 ２六歩(27)\n")
+                .replace('\n', eol);
+            let jkf = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{kif:?}: {e}"));
+            let forks = |i: usize| {
+                jkf.moves[i]
+                    .forks
+                    .as_ref()
+                    .map(|v| v.iter().map(Vec::len).collect::<Vec<_>>())
+            };
+            assert_eq!((forks(2), forks(3)), (Some(vec![2]), None), "{kif:?}");
+            let kif = format!("{head}まで3手で中断\n\n*コメント\n変化：2手\n   2 ８四歩(83)\n")
+                .replace('\n', eol);
+            let err = parse_kif_str(&kif).expect_err(&kif);
+            assert!(matches!(err, ParseError::Kif(_)), "{kif:?}: {err:?}");
+        }
+
+        // And where the 手数 header goes. With LF, a blank line there was read together
+        // with the next line as the header, so a first move or an opening comment was
+        // lost; with CRLF, a header after it was not read.
+        for eol in ["\n", "\r\n"] {
+            for (kif, comments) in [
+                ("手合割：平手\n\n   1 ７六歩(77)\n", None),
+                (
+                    "手合割：平手\n\n*開始局面\n   1 ７六歩(77)\n",
+                    Some(vec![String::from("開始局面")]),
+                ),
+                (
+                    "手合割：平手\n\n手数----指手---------消費時間--\n   1 ７六歩(77)\n",
+                    None,
+                ),
+                // The initial position's comments may follow a blank line or an indent too,
+                // like any move's and as in KI2. They made the record an error.
+                (
+                    "手合割：平手\n手数----指手---------消費時間--\n\n*c1\n\n  *c2\n   1 ７六歩(77)\n",
+                    Some(vec![String::from("c1"), String::from("c2")]),
+                ),
+            ] {
+                let kif = kif.replace('\n', eol);
+                let jkf = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{kif:?}: {e}"));
+                assert_eq!(jkf.moves.len(), 2, "{kif:?}");
+                assert_eq!(jkf.moves[0].comments, comments, "{kif:?}");
+            }
+            // Past a blank line, only a 手数 header is taken there. With no header, the
+            // line after the blank one was taken in its place and lost: the initial
+            // position's bookmark, a first move indented with a tab, or a header line,
+            // which a blank line among the header lines makes an error.
+            for (kif, comments) in [
+                (
+                    "手合割：平手\n\n&しおり\n   1 ７六歩(77)\n",
+                    Some(vec![String::from("&しおり")]),
+                ),
+                ("手合割：平手\n\n\t1 ７六歩(77)\n", None),
+            ] {
+                let kif = kif.replace('\n', eol);
+                let jkf = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{kif:?}: {e}"));
+                assert_eq!(jkf.moves.len(), 2, "{kif:?}");
+                assert_eq!(jkf.moves[0].comments, comments, "{kif:?}");
+            }
+            let kif = "先手：A\n\n手合割：香落ち\n   1 投了\n".replace('\n', eol);
+            let err = parse_kif_str(&kif).expect_err(&kif);
+            assert!(matches!(err, ParseError::Kif(_)), "{kif:?}: {err:?}");
+        }
+    }
+
+    #[test]
+    fn sealed_move() {
+        use crate::converter::ToKif;
+        use crate::jkf::MoveSpecial::SpecialChudan;
+
+        // A record saved while the game is adjourned ends at the sealed move, and had no
+        // rule. json-kifu-format reads 封じ手 as CHUDAN, and so does this, so the KIF
+        // writer puts it back as 中断.
+        let head =
+            "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n   2 ３四歩(33)\n";
+        let jkf = parse_kif_str(&format!("{head}   3 封じ手\n")).expect("should parse");
+        assert_eq!(jkf.moves[3].special, Some(SpecialChudan));
+        assert_eq!(jkf.to_kif_owned(), format!("{head}   3 中断\n"));
+    }
+
+    #[test]
+    fn kif_fouls_and_unsolved_mates() {
+        use crate::converter::ToKif;
+        use crate::jkf::MoveSpecial::*;
+
+        // 不詰 and 反則勝ち had no rule, so a game ending in one lost that line, and would
+        // now fail to parse. 反則勝ち is a win for the side to move on the other side's
+        // foul; which side is to move follows from the ply, and 上手 (White) moves first
+        // in a handicap game.
+        let hirate = "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n";
+        let kyo = "手合割：香落ち\n手数----指手---------消費時間--\n   1 ５四歩(53)\n";
+        for (kif, ply, special) in [
+            (
+                format!("{hirate}   2 ３四歩(33)\n   3 不詰\n"),
+                3,
+                SpecialFuzumi,
+            ),
+            (
+                format!("{hirate}   2 反則勝ち\n"),
+                2,
+                SpecialIllegalActionBlack,
+            ),
+            (
+                format!("{hirate}   2 ３四歩(33)\n   3 反則勝ち\n"),
+                3,
+                SpecialIllegalActionWhite,
+            ),
+            (
+                format!("{kyo}   2 反則勝ち\n"),
+                2,
+                SpecialIllegalActionWhite,
+            ),
+            (
+                format!("{kyo}   2 ７六歩(77)\n   3 反則勝ち\n"),
+                3,
+                SpecialIllegalActionBlack,
+            ),
+            // A record that opens with one. `normalize` tells KIF's colours apart by the
+            // move at ply 1, and there is none, so the handicap's sign was left as if
+            // Black moved first.
+            (
+                String::from("手合割：平手\n手数----指手---------消費時間--\n   1 反則勝ち\n"),
+                1,
+                SpecialIllegalActionWhite,
+            ),
+            (
+                String::from("手合割：香落ち\n手数----指手---------消費時間--\n   1 反則勝ち\n"),
+                1,
+                SpecialIllegalActionBlack,
+            ),
+        ] {
+            let jkf = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{kif}: {e}"));
+            assert_eq!(jkf.moves.len(), ply + 1, "{kif}");
+            assert_eq!(jkf.moves[ply].special, Some(special), "{kif}");
+            // The writer puts the same word back.
+            assert_eq!(jkf.to_kif_owned(), kif);
+        }
+        // The forks at that ply were left with those colours too, and their first move
+        // was rejected as the wrong side's.
+        let kif = "手合割：香落ち\n手数----指手---------消費時間--\n   1 中断\n\n変化：1手\n   1 ５四歩(53)\n   2 反則勝ち\n";
+        let jkf = parse_kif_str(kif).unwrap_or_else(|e| panic!("{e}"));
+        let fork = &jkf.moves[1].forks.as_ref().expect("a fork")[0];
+        assert_eq!(
+            fork[0].move_.map(|mmf| mmf.color),
+            Some(crate::jkf::Color::White)
+        );
+        assert_eq!(fork[1].special, Some(SpecialIllegalActionWhite));
+        assert_eq!(jkf.to_kif_owned(), kif);
+
+        // A JKF (or CSA) foul names its side, which can be the side to move: an illegal 入玉
+        // declaration, say. KIF writes that as the side to move's loss. Both used to come
+        // out as 中断, and so did FUZUMI.
+        for (special, word) in [
+            ("+ILLEGAL_ACTION", "反則勝ち"),
+            ("-ILLEGAL_ACTION", "反則負け"),
+            ("FUZUMI", "不詰"),
+        ] {
+            let json = format!(
+                r#"{{"header":{{}},"moves":[{{}},{{"move":{{"color":0,"from":{{"x":7,"y":7}},"to":{{"x":7,"y":6}},"piece":"FU"}}}},{{"special":"{special}"}}]}}"#
+            );
+            let kif = parse_jkf_str(&json).expect("should parse").to_kif_owned();
+            assert!(kif.contains(&format!("   2 {word}\n")), "{special}: {kif}");
+        }
+
+        // The 中断 arm forgot to count its own width, so the time column ran four columns
+        // wide of the other lines.
+        let jkf = parse_kif_file("data/tests/kif/example.kif").expect("should parse");
+        assert!(jkf
+            .to_kif_owned()
+            .contains("   3 中断         ( 0:03/00:00:19)\n"));
+    }
+
+    #[test]
+    fn ki2_unread_input_is_an_error() {
+        // `many0(single_move)` stopped at anything it could not take, and the rest of the
+        // input was thrown away: a stray line, a 変化 block (which KI2 parsing does not
+        // support), or a file that is not a record at all.
+        for ki2 in [
+            "▲２六歩 △８四歩\n投了\n",
+            "▲２六歩 △８四歩\n変化：2手\n△３四歩\n",
+            "これは棋譜ではありません\n",
+        ] {
+            let err = parse_ki2_str(ki2).expect_err(ki2);
+            assert!(matches!(err, ParseError::Ki2(_)), "{ki2}: {err:?}");
+        }
+        // A blank line between moves does not end the game.
+        let jkf = parse_ki2_str("▲２六歩\n\n△８四歩\n").expect("should parse");
+        assert_eq!(jkf.moves.len(), 3);
+    }
+
+    #[test]
+    fn ki2_result_line() {
+        use crate::jkf::MoveSpecial::*;
+
+        // The `まで…` line is where KI2 says how the game ended (Shogi DB2 writes a token
+        // too, below). It used to be left unread, so the special was lost.
+        let moves = "▲２六歩 △８四歩\n";
+        for (line, special) in [
+            ("まで2手で後手の勝ち", Some(SpecialToryo)),
+            ("まで2手で時間切れにより後手の勝ち", Some(SpecialTimeUp)),
+            // The winner is named, so the foul is the other side's.
+            ("まで2手で後手の反則勝ち", Some(SpecialIllegalActionBlack)),
+            ("まで2手で先手の反則勝ち", Some(SpecialIllegalActionWhite)),
+            ("まで2手で先手の反則負け", Some(SpecialIllegalMove)),
+            ("まで2手で先手の入玉勝ち", Some(SpecialKachi)),
+            ("まで2手で中断", Some(SpecialChudan)),
+            ("まで2手で封じ手", Some(SpecialChudan)),
+            ("まで2手で持将棋", Some(SpecialJishogi)),
+            ("まで2手で千日手", Some(SpecialSennichite)),
+            ("まで2手で詰み", Some(SpecialTsumi)),
+            ("まで2手詰", Some(SpecialTsumi)),
+            ("まで2手で不詰", Some(SpecialFuzumi)),
+            // A wording this does not know still closes the record: the moves are all there.
+            ("まで2手で終局", None),
+        ] {
+            // With and without a line ending after it.
+            for ki2 in [format!("{moves}{line}\n"), format!("{moves}{line}")] {
+                let jkf = parse_ki2_str(&ki2).unwrap_or_else(|e| panic!("{line}: {e}"));
+                assert_eq!(
+                    jkf.moves.len(),
+                    3 + usize::from(special.is_some()),
+                    "{line}"
+                );
+                assert_eq!(
+                    jkf.moves.last().and_then(|mf| mf.special),
+                    special,
+                    "{line}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ki2_comments_after_the_last_move() {
+        use crate::converter::ToKi2;
+        use crate::jkf::MoveSpecial::*;
+
+        let comments = |v: &[&str]| Some(v.iter().map(|&s| String::from(s)).collect());
+        // tsshogi writes a special's comments and bookmark after the `まで…` line, and
+        // reads them back onto the special. No rule read them, so the record was rejected.
+        for eol in ["\n", "\r\n"] {
+            let ki2 = [
+                "手合割：平手",
+                "▲７六歩    △３四歩",
+                "*最終手",
+                "まで2手で後手の勝ち",
+                "*投了図",
+                "&終局",
+                "",
+            ]
+            .join(eol);
+            let jkf = parse_ki2_str(&ki2).unwrap_or_else(|e| panic!("{eol:?}: {e}"));
+            assert_eq!(jkf.moves.len(), 4, "{eol:?}");
+            assert_eq!(jkf.moves[2].comments, comments(&["最終手"]), "{eol:?}");
+            assert_eq!(jkf.moves[3].special, Some(SpecialToryo), "{eol:?}");
+            assert_eq!(
+                jkf.moves[3].comments,
+                comments(&["投了図", "&終局"]),
+                "{eol:?}"
+            );
+            // `#` lines are comments, as in KIF.
+            let jkf = parse_ki2_str(&format!("{ki2}#コメント{eol}"))
+                .unwrap_or_else(|e| panic!("{eol:?}: {e}"));
+            assert_eq!(jkf.moves.len(), 4, "{eol:?}");
+        }
+        // With no `まで…` line, comments past a blank line go to the last move. This
+        // crate's writer leaves a blank line before a special's comments when the last
+        // move has comments too, and writes no `まで…` line, so its own output was
+        // rejected.
+        let kif = "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n   2 ３四歩(33)\n*最終手\n   3 投了\n*投了図\n";
+        let written = parse_kif_str(kif).expect("should parse").to_ki2_owned();
+        let jkf = parse_ki2_str(&written).unwrap_or_else(|e| panic!("{written}: {e}"));
+        assert_eq!(jkf.moves.len(), 3, "{written}");
+        assert_eq!(jkf.moves[2].comments, comments(&["最終手", "投了図"]));
+        // `floodgate.json` has that shape: an evaluation on its last move, and the game
+        // summary on its TORYO. The KI2 writer writes no special and KI2 has no times,
+        // so the TORYO is lost, but every comment reads back, the summary onto the last
+        // move.
+        let jkf = parse_jkf_file("data/tests/csa/floodgate.json").expect("should parse");
+        let written = jkf.to_ki2_owned();
+        let reparsed = parse_ki2_str(&written).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(reparsed.moves.len(), jkf.moves.len() - 1);
+        let all = |jkf: &JsonKifuFormat| {
+            jkf.moves
+                .iter()
+                .flat_map(|mf| mf.comments.iter().flatten().cloned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(all(&reparsed), all(&jkf));
+        let summary = jkf.moves.last().and_then(|mf| mf.comments.as_ref());
+        let last = reparsed.moves.last().and_then(|mf| mf.comments.as_ref());
+        assert!(
+            last.zip(summary).is_some_and(|(l, s)| l.ends_with(s)),
+            "{last:?}"
+        );
+    }
+
+    #[test]
+    fn ki2_comments_after_blank_lines() {
+        use crate::converter::ToKi2;
+        use crate::jkf::MoveSpecial::*;
+
+        // A comment past a blank line, or indented, belongs to the move before it, as in
+        // KIF. It was read only as a comment after the last move, so the moves after it
+        // were unread input and the record was rejected.
+        let comments = |v: &[&str]| Some(v.iter().map(|&s| String::from(s)).collect());
+        for ki2 in ["▲２六歩\n\n*c\n△３四歩\n", "▲２六歩\n  *c\n△３四歩\n"] {
+            let jkf = parse_ki2_str(ki2).unwrap_or_else(|e| panic!("{ki2:?}: {e}"));
+            assert_eq!(jkf.moves.len(), 3, "{ki2:?}");
+            assert_eq!(jkf.moves[1].comments, comments(&["c"]), "{ki2:?}");
+        }
+        // The same goes for the initial position's comments.
+        let jkf = parse_ki2_str("*c1\n\n*c2\n▲２六歩\n").unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(jkf.moves.len(), 2);
+        assert_eq!(jkf.moves[0].comments, comments(&["c1", "c2"]));
+        let opening = "▲２六歩 △３四歩 ▲７六歩 △５四歩 ▲４八銀 △５二飛 ▲６八玉 △５五歩";
+        let ki2 = format!("{opening}\n*c1\n\n*c2\nまで8手で後手の勝ち\n");
+        let jkf = parse_ki2_str(&ki2).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(jkf.moves.len(), 10);
+        assert_eq!(jkf.moves[8].comments, comments(&["c1", "c2"]));
+        assert_eq!(jkf.moves[9].special, Some(SpecialToryo));
+        // A Shogi DB2 token's comments are the special's.
+        let ki2 = format!("{opening} ▲７八玉 △投了\n*投了コメント\nまで9手で先手の勝ち\n");
+        let jkf = parse_ki2_str(&ki2).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(jkf.moves.len(), 11);
+        assert_eq!(jkf.moves[10].special, Some(SpecialToryo));
+        assert_eq!(jkf.moves[10].comments, comments(&["投了コメント"]));
+        // They may follow a blank line too, and come before the comments after `まで…`.
+        for (ki2, expected) in [
+            (
+                "▲７六歩 △投了\n\n*t\n\n  *t2\nまで1手で先手の勝ち\n\n*c\n",
+                &["t", "t2", "c"][..],
+            ),
+            ("▲７六歩 △投了\n*t\nまで1手で先手の勝ち\n*c\n", &["t", "c"]),
+        ] {
+            let jkf = parse_ki2_str(ki2).unwrap_or_else(|e| panic!("{ki2:?}: {e}"));
+            assert_eq!(jkf.moves.len(), 3, "{ki2:?}");
+            assert_eq!(jkf.moves[2].special, Some(SpecialToryo), "{ki2:?}");
+            assert_eq!(jkf.moves[2].comments, comments(expected), "{ki2:?}");
+        }
+
+        // This crate's writer writes no special, and leaves a blank line before its
+        // comments when the move before it has comments too. It stops there: what
+        // follows a special is not played, and the writer used to write it as played.
+        let p76 = r#"{"color":0,"from":{"x":7,"y":7},"to":{"x":7,"y":6},"piece":"FU"}"#;
+        let p34 = r#"{"color":1,"from":{"x":3,"y":3},"to":{"x":3,"y":4},"piece":"FU"}"#;
+        let json = format!(
+            r#"{{"header":{{}},"moves":[{{}},{{"move":{p76},"comments":["a"]}},{{"special":"CHUDAN","comments":["s"]}},{{"move":{p34}}}]}}"#
+        );
+        let written = parse_jkf_str(&json).expect("should parse").to_ki2_owned();
+        assert_eq!(written, "▲７六歩\n*a\n\n*s\n\n");
+        let jkf = parse_ki2_str(&written).unwrap_or_else(|e| panic!("{written}: {e}"));
+        assert_eq!(jkf.moves.len(), 2);
+        assert_eq!(jkf.moves[1].comments, comments(&["a", "s"]));
+    }
+
+    #[test]
+    fn ki2_result_token() {
+        use crate::jkf::MoveSpecial::*;
+
+        // Shogi DB2 writes how the game ended as one more "move" before the `まで…` line,
+        // with a mark that need not be the side to move's. These are tsshogi's samples of
+        // it: the token was left unread, so each was rejected.
+        let opening = "▲２六歩 △３四歩 ▲７六歩 △５四歩 ▲４八銀 △５二飛 ▲６八玉 △５五歩";
+        for (ki2, len, special) in [
+            (
+                format!("{opening} ▲７八玉 △投了\nまで9手で先手の勝ち"),
+                11,
+                SpecialToryo,
+            ),
+            (
+                format!("{opening} △投了\nまで8手で後手の勝ち"),
+                10,
+                SpecialToryo,
+            ),
+            (
+                format!("{opening} ▲７八玉 △千日手\nまで9手で千日手"),
+                11,
+                SpecialSennichite,
+            ),
+            (
+                format!("{opening} △千日手\nまで8手で千日手"),
+                10,
+                SpecialSennichite,
+            ),
+            // With no `まで…` line, the token says how the game ended. 反則勝ち is a win
+            // for the side to move, on the foul of whoever moved last.
+            (format!("{opening} ▲投了\n"), 10, SpecialToryo),
+            (
+                format!("{opening}\n▲反則勝ち\n"),
+                10,
+                SpecialIllegalActionWhite,
+            ),
+            // With no move before it, the side to move is the initial position's. It used
+            // to be read and dropped.
+            (String::from("▲反則勝ち\n"), 2, SpecialIllegalActionWhite),
+            (
+                String::from("手合割：香落ち\n△反則勝ち\n"),
+                2,
+                SpecialIllegalActionBlack,
+            ),
+            // Any KIF word is taken, 封じ手 included.
+            (format!("{opening} ▲封じ手\n"), 10, SpecialChudan),
+            // When the two disagree, the `まで…` line is read if it names a result, and
+            // the token if it uses a wording this does not know.
+            (
+                format!("{opening} ▲千日手\nまで8手で後手の勝ち"),
+                10,
+                SpecialToryo,
+            ),
+            (
+                format!("{opening} ▲千日手\nまで8手で終局"),
+                10,
+                SpecialSennichite,
+            ),
+            (
+                format!("{opening} ▲７八玉 △反則勝ち\nまで9手で先手の反則勝ち"),
+                11,
+                SpecialIllegalActionWhite,
+            ),
+        ] {
+            let jkf = parse_ki2_str(&ki2).unwrap_or_else(|e| panic!("{ki2}: {e}"));
+            assert_eq!(jkf.moves.len(), len, "{ki2}");
+            assert_eq!(
+                jkf.moves.last().and_then(|mf| mf.special),
+                Some(special),
+                "{ki2}"
+            );
+        }
+        // It ends the moves.
+        let err = parse_ki2_str("▲２六歩 △投了 ▲７六歩\n").expect_err("a token mid-game");
+        assert!(matches!(err, ParseError::Ki2(_)), "{err:?}");
     }
 
     #[test]
@@ -289,6 +1009,102 @@ mod tests {
         assert_eq!(data.color, Color::Black);
         assert_eq!(jkf.moves[1].move_.map(|m| m.color), Some(Color::Black));
         assert_eq!(jkf.to_kif_owned(), kif);
+
+        // A `後手番` record can number its first line 2, and the parity then already gives
+        // White its move. A 反則勝ち there was inverted all the same, so the win went to
+        // the side not to move, and the writer put it back as 反則負け.
+        let head = format!("{board}後手番\n手数----指手---------消費時間--\n");
+        for first in ["   1 反則勝ち\n", "   2 反則勝ち\n"] {
+            let jkf =
+                parse_kif_str(&format!("{head}{first}")).unwrap_or_else(|e| panic!("{first}: {e}"));
+            assert_eq!(
+                jkf.moves[1].special,
+                Some(crate::jkf::MoveSpecial::SpecialIllegalActionBlack),
+                "{first}"
+            );
+            // The writer numbers from 1, and that reads back the same.
+            let written = jkf.to_kif_owned();
+            assert_eq!(written, format!("{head}   1 反則勝ち\n"), "{first}");
+            assert_eq!(parse_kif_str(&written).ok(), Some(jkf), "{first}");
+        }
+    }
+
+    #[test]
+    fn a_board_next_to_a_preset_is_not_written() {
+        use crate::converter::{ToCsa, ToKi2, ToKif};
+        use shogi_core::ToUsi;
+
+        // JKF reads `data` only with the OTHER preset. The replay, `to_usi` and the side
+        // the KIF writer counts the plies from followed the preset, but the writers wrote
+        // the board: here two kings and nothing else, before a pawn move from 7七.
+        let file = |x| {
+            let cells = (1..=9).map(|y| match (x, y) {
+                (5, 1) => r#"{"color":1,"kind":"OU"}"#,
+                (5, 9) => r#"{"color":0,"kind":"OU"}"#,
+                _ => "{}",
+            });
+            format!("[{}]", cells.collect::<Vec<_>>().join(","))
+        };
+        let board = format!("[{}]", (1..=9).map(file).collect::<Vec<_>>().join(","));
+        let hand = r#"{"FU":0,"KY":0,"KE":0,"GI":0,"KI":0,"KA":0,"HI":0}"#;
+        let record = |moves: &str| {
+            format!(
+                r#"{{"header":{{}},"initial":{{"preset":"HIRATE","data":{{"color":1,"board":{board},"hands":[{hand},{hand}]}}}},"moves":[{{}},{moves}]}}"#
+            )
+        };
+        let p76 = r#"{"color":0,"from":{"x":7,"y":7},"to":{"x":7,"y":6},"piece":"FU"}"#;
+        let jkf = parse_jkf_str(&record(&format!(r#"{{"move":{p76}}}"#))).expect("should parse");
+        assert_eq!(jkf.to_usi_owned(), "startpos moves 7g7f");
+        let kif = jkf.to_kif_owned();
+        assert!(kif.starts_with("手合割：平手\n"), "{kif}");
+        let (ki2, csa) = (jkf.to_ki2_owned(), jkf.to_csa_owned());
+        for back in [
+            parse_kif_str(&kif),
+            parse_ki2_str(&ki2),
+            parse_csa_str(&csa),
+        ] {
+            let back = back.unwrap_or_else(|e| panic!("{kif}{ki2}{csa}: {e}"));
+            assert_eq!(back.to_usi_owned(), "startpos moves 7g7f");
+        }
+
+        // The board says White is to move, so a foul was written for the wrong side and
+        // read back as the other side's.
+        let jkf = parse_jkf_str(&record(r#"{"special":"-ILLEGAL_ACTION"}"#)).expect("should parse");
+        let kif = jkf.to_kif_owned();
+        assert_eq!(
+            kif,
+            "手合割：平手\n手数----指手---------消費時間--\n   1 反則勝ち\n"
+        );
+        let back = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(back.moves[1].special, jkf.moves[1].special);
+
+        // `normalize` read the board all the same: one that is a handicap's layout was
+        // folded into that preset, and its hands were checked. So 角落ち next to the
+        // board of 香落ち was played and written as 香落ち, and 100 pawns in a hand
+        // nothing reads made the record an error.
+        use crate::jkf::{Initial, Preset};
+        use shogi_core::PartialPosition;
+        let pos = PartialPosition::try_from(&Initial {
+            preset: Preset::PresetKY,
+            data: None,
+        })
+        .expect("a preset converts");
+        let ky = serde_json::to_string(&Initial::from(&pos).data).expect("serializes");
+        let p34 = r#"{"color":1,"from":{"x":3,"y":3},"to":{"x":3,"y":4},"piece":"FU"}"#;
+        let ka = |data: &str| {
+            let json = format!(
+                r#"{{"header":{{}},"initial":{{"preset":"KA"{data}}},"moves":[{{}},{{"move":{p34}}}]}}"#
+            );
+            parse_jkf_str(&json).unwrap_or_else(|e| panic!("{json}: {e}"))
+        };
+        let (jkf, without) = (ka(&format!(r#","data":{ky}"#)), ka(""));
+        assert_eq!(jkf.to_usi_owned(), without.to_usi_owned());
+        let kif = jkf.to_kif_owned();
+        assert!(kif.starts_with("手合割：角落ち\n"), "{kif}");
+        let hand100 = r#"{"FU":100,"KY":0,"KE":0,"GI":0,"KI":0,"KA":0,"HI":0}"#;
+        let json = record(&format!(r#"{{"move":{p76}}}"#)).replacen(hand, hand100, 1);
+        let jkf = parse_jkf_str(&json).unwrap_or_else(|e| panic!("{json}: {e}"));
+        assert_eq!(jkf.to_usi_owned(), "startpos moves 7g7f");
     }
 
     #[test]
@@ -452,19 +1268,63 @@ mod tests {
                     _ => parse_ki2_file(&path),
                 }
                 .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-                let text = match ext {
-                    "csa" => original.to_csa_owned(),
-                    "kif" => original.to_kif_owned(),
-                    _ => original.to_ki2_owned(),
-                };
-                let reparsed = match ext {
-                    "csa" => parse_csa_str(&text),
-                    "kif" => parse_kif_str(&text),
-                    _ => parse_ki2_str(&text),
+                // Into KIF and KI2 from every format, not only back into its own. Into CSA
+                // only from CSA: the csa crate stops at a comment with no text or one
+                // holding a comma (`oui202106290101.kif` has empty ones) and drops the
+                // rest without an error.
+                let mut written = vec![
+                    ("KIF", parse_kif_str(&original.to_kif_owned())),
+                    ("KI2", parse_ki2_str(&original.to_ki2_owned())),
+                ];
+                if ext == "csa" {
+                    written.push(("CSA", parse_csa_str(&original.to_csa_owned())));
                 }
-                .unwrap_or_else(|e| panic!("{}: reading our own output back: {e}", path.display()));
-                assert_eq!(essence(&original), essence(&reparsed), "{}", path.display());
+                for (format, reparsed) in written {
+                    let reparsed = reparsed.unwrap_or_else(|e| {
+                        panic!(
+                            "{} as {format}: reading our own output back: {e}",
+                            path.display()
+                        )
+                    });
+                    assert_eq!(
+                        essence(&original),
+                        essence(&reparsed),
+                        "{} as {format}",
+                        path.display()
+                    );
+                }
             }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn utf8_fixtures_match_their_shift_jis_twins() -> Result<()> {
+        // `.kifu` / `.ki2u` are the same records as their `.kif` / `.ki2` twins, so any
+        // difference between the two parses is a bug in decoding. Walking from the UTF-8
+        // side skips `oui202106290101.kif`, which has no twin.
+        for (dir, utf8, shift_jis) in [
+            ("data/tests/kif", "kifu", "kif"),
+            ("data/tests/ki2", "ki2u", "ki2"),
+        ] {
+            let parse = |path: &Path| match utf8 {
+                "kifu" => parse_kif_file(path),
+                _ => parse_ki2_file(path),
+            };
+            let mut pairs = 0;
+            for entry in Path::new(dir).read_dir()? {
+                let path = entry?.path();
+                if path.extension() != Some(OsStr::new(utf8)) {
+                    continue;
+                }
+                let twin = path.with_extension(shift_jis);
+                let from_utf8 = parse(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+                let from_shift_jis =
+                    parse(&twin).unwrap_or_else(|e| panic!("{}: {e}", twin.display()));
+                assert_eq!(from_utf8, from_shift_jis, "{}", path.display());
+                pairs += 1;
+            }
+            assert!(pairs > 0, "no .{utf8} fixtures in {dir}");
         }
         Ok(())
     }

@@ -1,4 +1,6 @@
 use crate::jkf::*;
+use crate::normalizer::{handicap_squares, HIRATE_BOARD};
+use shogi_core::Square;
 use std::collections::HashMap;
 use std::fmt::{Result, Write};
 
@@ -8,6 +10,11 @@ pub trait ToCsa {
     ///
     /// This function returns Err(core::fmt::Error)
     /// if and only if it fails to write to `sink`.
+    ///
+    /// A value [`normalize`](JsonKifuFormat::normalize) would reject is written as far as
+    /// CSA can express it: a move entry with neither `move` nor `special` is left out, and
+    /// a `PresetOther` with no board data, which CSA has no notation for, writes no
+    /// position.
     fn to_csa<W: Write>(&self, sink: &mut W) -> Result;
 
     /// Returns `self`'s string representation.
@@ -130,29 +137,15 @@ fn write_initial_data<W: Write>(data: &StateFormat, sink: &mut W) -> Result {
     Ok(())
 }
 
-fn write_initial_preset<W: Write>(preset: Preset, sink: &mut W) -> Result {
-    match preset {
-        Preset::PresetHirate => sink.write_str("PI")?,
-        Preset::PresetKY => sink.write_str("PI11KY")?,
-        Preset::PresetKYR => sink.write_str("PI91KY")?,
-        Preset::PresetKA => sink.write_str("PI22KA")?,
-        Preset::PresetHI => sink.write_str("PI82HI")?,
-        Preset::PresetHIKY => sink.write_str("PI82HI11KY")?,
-        Preset::Preset2 => sink.write_str("PI82HI22KA")?,
-        Preset::Preset3 => sink.write_str("PI82HI22KA11KY")?,
-        Preset::Preset4 => sink.write_str("PI82HI22KA91KY11KY")?,
-        Preset::Preset5 => sink.write_str("PI82HI22KA91KY11KY81KE")?,
-        Preset::Preset5L => sink.write_str("PI82HI22KA91KY11KY21KE")?,
-        Preset::Preset6 => sink.write_str("PI82HI22KA91KY11KY81KE21KE")?,
-        Preset::Preset7L => sink.write_str("PI82HI22KA91KY11KY81KE21KE31GI")?,
-        Preset::Preset7R => sink.write_str("PI82HI22KA91KY11KY81KE21KE71GI")?,
-        Preset::Preset8 => sink.write_str("PI82HI22KA91KY11KY81KE21KE71GI31GI")?,
-        Preset::Preset10 => sink.write_str("PI82HI22KA91KY11KY81KE21KE71GI31GI61KI41KI")?,
-        // No parser produces this: `OTHER` without board data is rejected by
-        // `TryFrom<&jkf::Initial>` during `normalize`. `to_csa` does not run that
-        // check, though, so a hand-built value reaches here — and CSA has no notation
-        // for a handicap with no board to describe it.
-        Preset::PresetOther => unimplemented!("`PresetOther` requires initial board data"),
+fn write_initial_preset<W: Write>(preset: Preset, squares: &[Square], sink: &mut W) -> Result {
+    // `PI` followed by each square the handicap clears and the piece standing there.
+    sink.write_str("PI")?;
+    for sq in squares {
+        sink.write_fmt(format_args!("{}{}", sq.file(), sq.rank()))?;
+        let piece = HIRATE_BOARD[usize::from(sq.file()) - 1][usize::from(sq.rank()) - 1];
+        if let Some(kind) = piece.kind {
+            write_kind(kind, sink)?;
+        }
     }
     sink.write_char('\n')?;
     if preset == Preset::PresetHirate {
@@ -165,10 +158,17 @@ fn write_initial_preset<W: Write>(preset: Preset, sink: &mut W) -> Result {
 
 fn write_initial<W: Write>(initial: &Option<Initial>, sink: &mut W) -> Result {
     if let Some(initial) = initial {
-        if let Some(data) = &initial.data {
+        // As for KIF: `data` is the position only with the OTHER preset.
+        if let (Preset::PresetOther, Some(data)) = (initial.preset, &initial.data) {
             write_initial_data(data, sink)?;
+        } else if let Some(squares) = handicap_squares(initial.preset) {
+            write_initial_preset(initial.preset, squares, sink)?;
         } else {
-            write_initial_preset(initial.preset, sink)?;
+            // `PresetOther` with no board: no parser produces this, since
+            // `TryFrom<&jkf::Initial>` rejects it during `normalize`, but `to_csa` does not
+            // run that check. CSA has no notation for a handicap with no board to describe
+            // it, so no position is written.
+            return Ok(());
         }
     } else {
         sink.write_str("PI\n+")?;
@@ -178,6 +178,11 @@ fn write_initial<W: Write>(initial: &Option<Initial>, sink: &mut W) -> Result {
 }
 
 fn write_moves<W: Write>(moves: &[MoveFormat], sink: &mut W) -> Result {
+    // An entry with neither a move nor a special has nothing to write. `normalize`
+    // rejects one, so only a value built by hand gets here, and it is left out.
+    let moves = moves
+        .iter()
+        .filter(|mf| mf.move_.is_some() || mf.special.is_some());
     for mf in moves {
         if let Some(mv) = mf.move_ {
             write_color(mv.color, sink)?;
@@ -207,8 +212,6 @@ fn write_moves<W: Write>(moves: &[MoveFormat], sink: &mut W) -> Result {
                 MoveSpecial::SpecialFuzumi => sink.write_str("FUZUMI")?,
                 MoveSpecial::SpecialError => sink.write_str("ERROR")?,
             }
-        } else {
-            unreachable!()
         }
         sink.write_str("\n")?;
         if let Some(time) = &mf.time {

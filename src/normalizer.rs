@@ -1,6 +1,6 @@
 use crate::error::NormalizeError;
 use crate::jkf::*;
-use shogi_core::{LegalityChecker, PartialPosition};
+use shogi_core::{LegalityChecker, PartialPosition, Square};
 use shogi_legality_lite::LiteLegalityChecker;
 use shogi_official_kifu::display_single_move_kansuji;
 
@@ -56,107 +56,60 @@ pub(crate) const HIRATE_BOARD: [[Piece; 9]; 9] = {
     ]
 };
 
-const STATE_HIRATE: StateFormat = StateFormat {
-    color: Color::Black,
-    board: HIRATE_BOARD,
-    hands: [Hand::empty(); 2],
-};
+/// Every preset that names a layout: all but `PresetOther`.
+const PRESETS: [Preset; 16] = [
+    Preset::PresetHirate,
+    Preset::PresetKY,
+    Preset::PresetKYR,
+    Preset::PresetKA,
+    Preset::PresetHI,
+    Preset::PresetHIKY,
+    Preset::Preset2,
+    Preset::Preset3,
+    Preset::Preset4,
+    Preset::Preset5,
+    Preset::Preset5L,
+    Preset::Preset6,
+    Preset::Preset7L,
+    Preset::Preset7R,
+    Preset::Preset8,
+    Preset::Preset10,
+];
 
-const STATE_KY: StateFormat = {
-    let mut board = HIRATE_BOARD;
-    board[0][0] = Piece::empty();
-    StateFormat {
-        color: Color::White,
-        board,
-        hands: [Hand::empty(); 2],
-    }
-};
+/// The squares a handicap clears from [`HIRATE_BOARD`]. This is the one table of the
+/// layouts: the position a preset stands for, CSA's `PI` line and the board
+/// `normalize` folds back into a preset are all derived from it. `None` for
+/// `PresetOther`, which names no layout. The layouts follow json-kifu-format's reference
+/// implementation.
+#[rustfmt::skip]
+pub(crate) fn handicap_squares(preset: Preset) -> Option<&'static [Square]> {
+    Some(match preset {
+        Preset::PresetHirate => &[],
+        Preset::PresetKY     => &[Square::SQ_1A],
+        Preset::PresetKYR    => &[Square::SQ_9A],
+        Preset::PresetKA     => &[Square::SQ_2B],
+        Preset::PresetHI     => &[Square::SQ_8B],
+        Preset::PresetHIKY   => &[Square::SQ_8B, Square::SQ_1A],
+        Preset::Preset2      => &[Square::SQ_8B, Square::SQ_2B],
+        Preset::Preset3      => &[Square::SQ_8B, Square::SQ_2B, Square::SQ_1A],
+        Preset::Preset4      => &[Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A],
+        Preset::Preset5      => &[Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A],
+        Preset::Preset5L     => &[Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_2A],
+        Preset::Preset6      => &[Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A, Square::SQ_2A],
+        Preset::Preset7L     => &[Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A, Square::SQ_2A, Square::SQ_3A],
+        Preset::Preset7R     => &[Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A, Square::SQ_2A, Square::SQ_7A],
+        Preset::Preset8      => &[Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A, Square::SQ_2A, Square::SQ_7A, Square::SQ_3A],
+        Preset::Preset10     => &[Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A, Square::SQ_2A, Square::SQ_7A, Square::SQ_3A, Square::SQ_6A, Square::SQ_4A],
+        Preset::PresetOther  => return None,
+    })
+}
 
-const STATE_KA: StateFormat = {
-    let mut board = HIRATE_BOARD;
-    board[1][1] = Piece::empty();
-    StateFormat {
-        color: Color::White,
-        board,
-        hands: [Hand::empty(); 2],
-    }
-};
-
-const STATE_HI: StateFormat = {
-    let mut board = HIRATE_BOARD;
-    board[7][1] = Piece::empty();
-    StateFormat {
-        color: Color::White,
-        board,
-        hands: [Hand::empty(); 2],
-    }
-};
-
-const STATE_HIKY: StateFormat = {
-    let mut board = HIRATE_BOARD;
-    board[0][0] = Piece::empty();
-    board[7][1] = Piece::empty();
-    StateFormat {
-        color: Color::White,
-        board,
-        hands: [Hand::empty(); 2],
-    }
-};
-
-const STATE_2: StateFormat = {
-    let mut board = HIRATE_BOARD;
-    board[1][1] = Piece::empty();
-    board[7][1] = Piece::empty();
-    StateFormat {
-        color: Color::White,
-        board,
-        hands: [Hand::empty(); 2],
-    }
-};
-
-const STATE_4: StateFormat = {
-    let mut board = STATE_2.board;
-    board[0][0] = Piece::empty();
-    board[8][0] = Piece::empty();
-    StateFormat {
-        color: Color::White,
-        board,
-        hands: [Hand::empty(); 2],
-    }
-};
-
-const STATE_6: StateFormat = {
-    let mut board = STATE_4.board;
-    board[1][0] = Piece::empty();
-    board[7][0] = Piece::empty();
-    StateFormat {
-        color: Color::White,
-        board,
-        hands: [Hand::empty(); 2],
-    }
-};
-
-const STATE_8: StateFormat = {
-    let mut board = STATE_6.board;
-    board[2][0] = Piece::empty();
-    board[6][0] = Piece::empty();
-    StateFormat {
-        color: Color::White,
-        board,
-        hands: [Hand::empty(); 2],
-    }
-};
-
-const STATE_10: StateFormat = {
-    let mut board = STATE_8.board;
-    board[3][0] = Piece::empty();
-    board[5][0] = Piece::empty();
-    StateFormat {
-        color: Color::White,
-        board,
-        hands: [Hand::empty(); 2],
-    }
-};
+/// The board data `preset` stands for, by way of its position: the same conversion any
+/// other board goes through, so the two cannot disagree on what a layout looks like.
+fn layout(preset: Preset) -> Option<StateFormat> {
+    let pos = PartialPosition::try_from(&Initial { preset, data: None }).ok()?;
+    Initial::from(&pos).data
+}
 
 impl Piece {
     pub(crate) const fn empty() -> Self {
@@ -193,17 +146,6 @@ impl Kind {
 }
 
 impl Hand {
-    pub(crate) const fn empty() -> Self {
-        Hand {
-            FU: 0,
-            KY: 0,
-            KE: 0,
-            GI: 0,
-            KI: 0,
-            KA: 0,
-            HI: 0,
-        }
-    }
     // Driven by a record's own piece list, which is not bounded by the rules, so this
     // saturates for the same reason `decrement` does.
     pub(crate) fn increment(&mut self, kind: Kind) {
@@ -267,7 +209,24 @@ fn pk2k(pk: shogi_core::PieceKind) -> Kind {
 }
 
 impl JsonKifuFormat {
+    /// Replays the record from its initial position, each line up to its first special,
+    /// and fills in what the source format left implicit (the from-square, `same`,
+    /// `promote`, `capture`, `relative` and the total times), so that every parser hands
+    /// back the same shape for the same game. What follows a special is not replayed.
+    ///
+    /// The `parse_*` functions call this. A value built by hand, or deserialized without
+    /// [`parse_jkf_str`](crate::parser::parse_jkf_str), should go through it before it is
+    /// written out: the writers rely on what this fills in, and write anything else only
+    /// as far as their format can express it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NormalizeError`] if a line cannot be replayed from its initial position
+    /// up to its first special, if a hand in it holds more than 99 of a piece (the most a
+    /// kifu can spell), or if a move entry past `moves[0]` has neither `move` nor
+    /// `special`.
     pub fn normalize(&mut self) -> Result<(), NormalizeError> {
+        check_entries(self.moves.get(1..).unwrap_or_default())?;
         normalize_initial(self)?;
         let pos = if let Some(initial) = &self.initial {
             match PartialPosition::try_from(initial) {
@@ -280,7 +239,9 @@ impl JsonKifuFormat {
         // KIF and KI2 have no colour on a move line and assign it from the ply's
         // parity, taking Black to move first. When the initial position says
         // otherwise every colour is inverted. This covers the handicap presets, which
-        // are always White to move, and a board diagram carrying a `後手番` line.
+        // are always White to move, and a board diagram carrying a `後手番` line. A KIF
+        // record that opens with a special has no move here to go by, so the KIF parser
+        // inverts that one itself.
         if pos.side_to_move() == shogi_core::Color::White
             && self
                 .moves
@@ -298,11 +259,29 @@ impl JsonKifuFormat {
     }
 }
 
+// Every entry past `moves[0]` stands for a ply, so it carries a move or a special (a fork
+// has no `moves[0]` of its own). The writers have nothing to write for one that does not
+// and leave it out, comments, time and forks included, with no way to say so, so it is
+// rejected here, where an error can be returned. `normalize_moves` stops at the first
+// special, so this walks the whole tree itself.
+fn check_entries(moves: &[MoveFormat]) -> Result<(), NormalizeError> {
+    for mf in moves {
+        if mf.move_.is_none() && mf.special.is_none() {
+            return Err(NormalizeError::NoMoveOrSpecial);
+        }
+        for fork in mf.forks.iter().flatten() {
+            check_entries(fork)?;
+        }
+    }
+    Ok(())
+}
+
 // A fork replaces a move of the main line, so its plies carry the same numbers and the
 // parser gave them colours from the same parity. Inverting has to reach them too, or
 // `normalize_moves` walks into a fork whose colours disagree with the position and
-// `normalize_move` rejects the whole record.
-fn invert_colors(moves: &mut [MoveFormat]) {
+// `normalize_move` rejects the whole record. KIF's 反則勝ち was given its side by the
+// same parity, so it is inverted along with the moves.
+pub(crate) fn invert_colors(moves: &mut [MoveFormat]) {
     for mf in moves {
         if let Some(mmf) = &mut mf.move_ {
             mmf.color = match mmf.color {
@@ -310,6 +289,11 @@ fn invert_colors(moves: &mut [MoveFormat]) {
                 Color::White => Color::Black,
             };
         }
+        mf.special = mf.special.map(|special| match special {
+            MoveSpecial::SpecialIllegalActionBlack => MoveSpecial::SpecialIllegalActionWhite,
+            MoveSpecial::SpecialIllegalActionWhite => MoveSpecial::SpecialIllegalActionBlack,
+            special => special,
+        });
         if let Some(forks) = &mut mf.forks {
             for fork in forks.iter_mut() {
                 invert_colors(fork);
@@ -318,51 +302,29 @@ fn invert_colors(moves: &mut [MoveFormat]) {
     }
 }
 
+// The side to move in `initial`: White in a handicap, and whoever a board names. A
+// position that does not convert is taken as Black to move, like a missing one;
+// `normalize` rejects it anyway.
+pub(crate) fn initial_side_to_move(initial: Option<&Initial>) -> Color {
+    initial
+        .and_then(|initial| PartialPosition::try_from(initial).ok())
+        .map_or(Color::Black, |pos| pos.side_to_move().into())
+}
+
 fn normalize_initial(jkf: &mut JsonKifuFormat) -> Result<(), NormalizeError> {
     if let Some(initial) = &mut jkf.initial {
-        *initial = match initial.data {
-            Some(STATE_HIRATE) => Initial {
-                preset: Preset::PresetHirate,
-                data: None,
-            },
-            Some(STATE_KY) => Initial {
-                preset: Preset::PresetKY,
-                data: None,
-            },
-            Some(STATE_KA) => Initial {
-                preset: Preset::PresetKA,
-                data: None,
-            },
-            Some(STATE_HI) => Initial {
-                preset: Preset::PresetHI,
-                data: None,
-            },
-            Some(STATE_HIKY) => Initial {
-                preset: Preset::PresetHIKY,
-                data: None,
-            },
-            Some(STATE_2) => Initial {
-                preset: Preset::Preset2,
-                data: None,
-            },
-            Some(STATE_4) => Initial {
-                preset: Preset::Preset4,
-                data: None,
-            },
-            Some(STATE_6) => Initial {
-                preset: Preset::Preset6,
-                data: None,
-            },
-            Some(STATE_8) => Initial {
-                preset: Preset::Preset8,
-                data: None,
-            },
-            Some(STATE_10) => Initial {
-                preset: Preset::Preset10,
-                data: None,
-            },
-            _ => *initial,
-        };
+        // JKF reads `data` only with the OTHER preset, and so does the replay. Next to any
+        // other preset a board is not the position, so it is neither folded nor checked.
+        if initial.preset != Preset::PresetOther {
+            return Ok(());
+        }
+        // A board that is exactly a handicap layout is stored by its name, whichever entry
+        // point it came through.
+        if let Some(data) = initial.data {
+            if let Some(preset) = PRESETS.into_iter().find(|&p| layout(p) == Some(data)) {
+                *initial = Initial { preset, data: None };
+            }
+        }
         // A KIF hand count is spelled in kanji and the writer stops at 九十九, which is
         // also the most SFEN carries in one token. Reject a larger count here, where it
         // can be reported: the writers return `fmt::Result` and cannot say which piece
@@ -472,47 +434,55 @@ fn normalize_move(mmf: &mut MoveMoveFormat, pos: &PartialPosition) -> Result<(),
     if mmf.from.is_none() {
         mmf.from = calculate_from(mmf, pos, to)?;
     }
+    // `(0, 0)` is how a from-square says "drop": the parsers write it for `打` and for
+    // CSA's `00`, and `JsonKifuFormat::try_from(&Position)` for every drop. JKF spells a
+    // drop as no from-square at all, so the marker is unwound here. Any other square off
+    // the board is malformed input, and taking it for a drop would make up a move the
+    // record does not contain.
+    if mmf.from == Some(PlaceFormat { x: 0, y: 0 }) {
+        mmf.from = None;
+    }
     if let Some(pf) = &mmf.from {
-        if let Ok(from) = pf.try_into() {
-            // Retrieve piece
-            let piece = match pos.piece_at(from) {
-                Some(piece) => piece,
-                None => return Err(NormalizeError::NoPieceAt(from)),
-            };
-            let from_piece_kind = piece.piece_kind();
-            let to_piece_kind = {
-                let pk = shogi_core::PieceKind::from(mmf.piece);
-                if mmf.promote.unwrap_or_default() {
-                    pk.promote().unwrap_or(pk)
-                } else {
-                    pk
-                }
-            };
-            mmf.piece = pk2k(from_piece_kind);
-            // Set same?
-            mmf.same = if pos
-                .last_move()
-                .map(|last| to == last.to())
-                .unwrap_or_default()
-            {
-                Some(true)
+        let from = match shogi_core::Square::try_from(pf) {
+            Ok(from) => from,
+            Err(err) => return Err(NormalizeError::Convert(err.to_string())),
+        };
+        // Retrieve piece
+        let piece = match pos.piece_at(from) {
+            Some(piece) => piece,
+            None => return Err(NormalizeError::NoPieceAt(from)),
+        };
+        let from_piece_kind = piece.piece_kind();
+        let to_piece_kind = {
+            let pk = shogi_core::PieceKind::from(mmf.piece);
+            if mmf.promote.unwrap_or_default() {
+                pk.promote().unwrap_or(pk)
             } else {
-                None
-            };
-            // Set promote?
-            mmf.promote = if from_piece_kind.promote().is_some()
-                && (from.relative_rank(pos.side_to_move()) <= 3
-                    || to.relative_rank(pos.side_to_move()) <= 3)
-            {
-                Some(from_piece_kind != to_piece_kind)
-            } else {
-                None
-            };
-            // Set capture?
-            mmf.capture = pos.piece_at(to).map(|p| pk2k(p.piece_kind()));
+                pk
+            }
+        };
+        mmf.piece = pk2k(from_piece_kind);
+        // Set same?
+        mmf.same = if pos
+            .last_move()
+            .map(|last| to == last.to())
+            .unwrap_or_default()
+        {
+            Some(true)
         } else {
-            mmf.from = None;
-        }
+            None
+        };
+        // Set promote?
+        mmf.promote = if from_piece_kind.promote().is_some()
+            && (from.relative_rank(pos.side_to_move()) <= 3
+                || to.relative_rank(pos.side_to_move()) <= 3)
+        {
+            Some(from_piece_kind != to_piece_kind)
+        } else {
+            None
+        };
+        // Set capture?
+        mmf.capture = pos.piece_at(to).map(|p| pk2k(p.piece_kind()));
     }
     let mv = match shogi_core::Move::try_from(&*mmf) {
         Ok(mv) => mv,
@@ -520,8 +490,15 @@ fn normalize_move(mmf: &mut MoveMoveFormat, pos: &PartialPosition) -> Result<(),
     };
     // Set relative?
     if mmf.relative.is_none() {
-        if let Some(mut display) = display_single_move_kansuji(pos, mv) {
-            mmf.relative = match (display.pop(), display.pop()) {
+        if let Some(display) = display_single_move_kansuji(pos, mv) {
+            // A move that could promote ends in `成` or `不成`, written after the
+            // disambiguation, so that comes off first.
+            let rest = display
+                .strip_suffix("不成")
+                .or_else(|| display.strip_suffix('成'))
+                .unwrap_or(&display);
+            let mut tail = rest.chars().rev();
+            mmf.relative = match (tail.next(), tail.next()) {
                 (Some('左'), _) => Some(Relative::L),
                 (Some('直'), _) => Some(Relative::C),
                 (Some('右'), _) => Some(Relative::R),

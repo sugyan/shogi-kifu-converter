@@ -7,15 +7,23 @@ use std::time::Duration;
 
 /// `csa::Square` is built from two bare digits with no range check, so a malformed
 /// record can name a square off the board. `(0, 0)` is the legal encoding for a piece
-/// in hand; anything else outside 1..=9 is rejected here rather than indexing a board.
-fn validate_squares(pos: &Position) -> Result<(), ParseError> {
+/// in hand, and for the from-square of a drop; anything else outside 1..=9 is rejected
+/// here rather than indexing a board or being taken for a drop.
+fn validate_squares(record: &GameRecord) -> Result<(), ParseError> {
     let on_board = |sq: &csa::Square| (1..=9).contains(&sq.file) && (1..=9).contains(&sq.rank);
     let in_hand = |sq: &csa::Square| sq.file == 0 && sq.rank == 0;
+    let pos = &record.start_pos;
     if pos
         .add_pieces
         .iter()
         .any(|(_, sq, _)| !on_board(sq) && !in_hand(sq))
         || pos.drop_pieces.iter().any(|(sq, _)| !on_board(sq))
+        || record.moves.iter().any(|m| match &m.action {
+            csa::Action::Move(_, from, to, _) => {
+                (!on_board(from) && !in_hand(from)) || !on_board(to)
+            }
+            _ => false,
+        })
     {
         return Err(ParseError::CsaConvert("square is off the board"));
     }
@@ -26,6 +34,7 @@ impl TryFrom<GameRecord> for JsonKifuFormat {
     type Error = ParseError;
 
     fn try_from(record: GameRecord) -> Result<Self, Self::Error> {
+        validate_squares(&record)?;
         // Header
         let mut header = HashMap::new();
         if let Some(s) = record.black_player {
@@ -53,7 +62,6 @@ impl TryFrom<GameRecord> for JsonKifuFormat {
             header.insert(String::from("戦型"), s);
         }
         // Initial
-        validate_squares(&record.start_pos)?;
         let initial = Some(record.start_pos.into());
         // Moves
         let mut moves = vec![MoveFormat::default()];

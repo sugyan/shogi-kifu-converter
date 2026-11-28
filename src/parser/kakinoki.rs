@@ -55,11 +55,33 @@ impl InformationData {
     }
 }
 
-fn comment_line(input: &str) -> IResult<&str, String, VerboseError<&str>> {
+pub(super) fn comment_line(input: &str) -> IResult<&str, String, VerboseError<&str>> {
     map(
         delimited(tag("#"), not_line_ending, line_ending),
         String::from,
     )(input)
+}
+
+/// How a game ended, in the words a KIF move line uses (and Shogi DB2's KI2, which writes
+/// them as one more move). 反則勝ち is a win for the side to move, on the other side's
+/// foul, so which side fouled depends on the ply: the caller settles it, as it does a
+/// move's colour.
+pub(super) fn special_word(input: &str) -> IResult<&str, MoveSpecial, VerboseError<&str>> {
+    alt((
+        value(MoveSpecial::SpecialToryo, tag("投了")),
+        value(MoveSpecial::SpecialChudan, tag("中断")),
+        value(MoveSpecial::SpecialSennichite, tag("千日手")),
+        value(MoveSpecial::SpecialTimeUp, tag("切れ負け")),
+        value(MoveSpecial::SpecialIllegalActionWhite, tag("反則勝ち")),
+        value(MoveSpecial::SpecialIllegalMove, tag("反則負け")),
+        value(MoveSpecial::SpecialJishogi, tag("持将棋")),
+        value(MoveSpecial::SpecialKachi, tag("入玉勝ち")),
+        value(MoveSpecial::SpecialTsumi, tag("詰み")),
+        value(MoveSpecial::SpecialFuzumi, tag("不詰")),
+        // A sealed move: the game is adjourned. JKF has no special for it, and
+        // json-kifu-format reads it as CHUDAN too.
+        value(MoveSpecial::SpecialChudan, tag("封じ手")),
+    ))(input)
 }
 
 pub(super) fn not_move_line(input: &str) -> IResult<&str, &str, VerboseError<&str>> {
@@ -199,7 +221,7 @@ fn information_line_preset(input: &str) -> IResult<&str, Information, VerboseErr
 
 // The names a side goes by at the start of an information line, shared by the 持駒 and
 // 番 lines so the two cannot drift apart on which spellings they accept.
-fn color_prefix(input: &str) -> IResult<&str, Color, VerboseError<&str>> {
+pub(super) fn color_prefix(input: &str) -> IResult<&str, Color, VerboseError<&str>> {
     alt((
         value(Color::Black, tag("先手")),
         value(Color::White, tag("後手")),

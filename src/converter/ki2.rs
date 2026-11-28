@@ -8,6 +8,12 @@ pub trait ToKi2 {
     ///
     /// This function returns Err(core::fmt::Error)
     /// if and only if it fails to write to `sink`.
+    ///
+    /// The moves stop at the first special: a KI2 record ends at its result, and the
+    /// moves after one are not played.
+    ///
+    /// A value [`normalize`](JsonKifuFormat::normalize) would reject is written as far as
+    /// KI2 can express it: a move entry with neither `move` nor `special` is left out.
     fn to_ki2<W: Write>(&self, sink: &mut W) -> Result;
 
     /// Returns `self`'s string representation.
@@ -49,7 +55,19 @@ fn write_moves<W: Write>(moves: &[MoveFormat], sink: &mut W) -> Result {
             sink.write_char('\n')?;
         }
     }
-    let mut it = moves.get(1..).unwrap_or_default().iter().peekable();
+    let moves = moves.get(1..).unwrap_or_default();
+    // A KI2 record ends at its result, so the moves after a special cannot be written:
+    // they are not played, and written out they read back as played.
+    let end = moves
+        .iter()
+        .position(|mf| mf.special.is_some())
+        .map_or(moves.len(), |i| i + 1);
+    // An entry with neither a move nor a special has nothing to write. `normalize`
+    // rejects one, so only a value built by hand gets here, and it is left out.
+    let mut it = moves[..end]
+        .iter()
+        .filter(|mf| mf.move_.is_some() || mf.special.is_some())
+        .peekable();
     while let Some(mf) = it.next() {
         if let Some(mv) = &mf.move_ {
             match mv.color {

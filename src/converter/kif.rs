@@ -1,5 +1,6 @@
 use super::kakinoki::{write_header, write_initial, write_kansuji, write_sanyou_suji};
 use crate::jkf::*;
+use crate::normalizer::initial_side_to_move;
 use std::fmt::{Result, Write};
 
 /// A type that is convertible to KIF format.
@@ -8,6 +9,9 @@ pub trait ToKif {
     ///
     /// This function returns Err(core::fmt::Error)
     /// if and only if it fails to write to `sink`.
+    ///
+    /// A value [`normalize`](JsonKifuFormat::normalize) would reject is written as far as
+    /// KIF can express it: a move entry with neither `move` nor `special` is left out.
     fn to_kif<W: Write>(&self, sink: &mut W) -> Result;
 
     /// Returns `self`'s string representation.
@@ -24,8 +28,42 @@ impl ToKif for JsonKifuFormat {
     fn to_kif<W: Write>(&self, sink: &mut W) -> Result {
         write_header(&self.header, sink)?;
         write_initial(&self.initial, false, sink)?;
-        write_moves(&self.moves, sink)?;
+        // KIF tells the sides apart only by the ply's parity, from whoever moves first.
+        let first = initial_side_to_move(self.initial.as_ref());
+        write_moves(&self.moves, first, sink)?;
         Ok(())
+    }
+}
+
+// The word KIF writes in the move column for `special`, at a ply where `to_move` is the
+// side to move.
+fn special_word(special: MoveSpecial, to_move: Color) -> &'static str {
+    // KIF names no side for a foul: 反則勝ち is a win for the side to move, on the other
+    // side's foul, and is read back that way. A foul by the side to move is its loss,
+    // which KIF can only write as 反則負け (read back as ILLEGAL_MOVE).
+    let foul = |offender| {
+        if offender == to_move {
+            "反則負け"
+        } else {
+            "反則勝ち"
+        }
+    };
+    match special {
+        MoveSpecial::SpecialToryo => "投了",
+        MoveSpecial::SpecialChudan => "中断",
+        MoveSpecial::SpecialSennichite => "千日手",
+        MoveSpecial::SpecialTimeUp => "切れ負け",
+        MoveSpecial::SpecialIllegalMove => "反則負け",
+        MoveSpecial::SpecialIllegalActionBlack => foul(Color::Black),
+        MoveSpecial::SpecialIllegalActionWhite => foul(Color::White),
+        MoveSpecial::SpecialJishogi => "持将棋",
+        MoveSpecial::SpecialKachi => "入玉勝ち",
+        MoveSpecial::SpecialTsumi => "詰み",
+        MoveSpecial::SpecialFuzumi => "不詰",
+        // KIF has no word for these.
+        MoveSpecial::SpecialHikiwake | MoveSpecial::SpecialMatta | MoveSpecial::SpecialError => {
+            "中断"
+        }
     }
 }
 
@@ -59,8 +97,19 @@ fn write_move_kind<W: Write>(kind: Kind, sink: &mut W, offset: &mut usize) -> Re
     Ok(())
 }
 
-fn write_move_lines<W: Write>(moves: &[MoveFormat], index: usize, sink: &mut W) -> Result {
+fn write_move_lines<W: Write>(
+    moves: &[MoveFormat],
+    index: usize,
+    first: Color,
+    sink: &mut W,
+) -> Result {
     let mut forks_stack = Vec::new();
+    // An entry with neither a move nor a special has nothing to write. `normalize`
+    // rejects one, so only a value built by hand gets here: it is left out, and the plies
+    // after it are numbered as if it were not there.
+    let moves = moves
+        .iter()
+        .filter(|mf| mf.move_.is_some() || mf.special.is_some());
     for (i, mf) in (index..).zip(moves) {
         sink.write_fmt(format_args!("{:4} ", i))?;
         let mut offset = 0;
@@ -77,51 +126,34 @@ fn write_move_lines<W: Write>(moves: &[MoveFormat], index: usize, sink: &mut W) 
                 sink.write_char('成')?;
                 offset += 2;
             }
-            if let Some(from) = mv.from {
-                sink.write_fmt(format_args!("({}{})", from.x, from.y))?;
-                offset += 4;
-            } else {
-                sink.write_char('打')?;
-                offset += 2;
-            }
-        } else if let Some(special) = &mf.special {
-            match special {
-                MoveSpecial::SpecialToryo => {
-                    sink.write_str("投了")?;
+            // `(0, 0)` is the parsers' mark for a drop, which `normalize` takes off only the
+            // moves it replays.
+            match mv.from {
+                Some(from) if from != PlaceFormat { x: 0, y: 0 } => {
+                    sink.write_fmt(format_args!("({}{})", from.x, from.y))?;
                     offset += 4;
                 }
-                MoveSpecial::SpecialSennichite => {
-                    sink.write_str("千日手")?;
-                    offset += 6;
+                _ => {
+                    sink.write_char('打')?;
+                    offset += 2;
                 }
-                MoveSpecial::SpecialTimeUp => {
-                    sink.write_str("切れ負け")?;
-                    offset += 8;
-                }
-                MoveSpecial::SpecialIllegalMove => {
-                    sink.write_str("反則負け")?;
-                    offset += 8;
-                }
-                MoveSpecial::SpecialJishogi => {
-                    sink.write_str("持将棋")?;
-                    offset += 6;
-                }
-                MoveSpecial::SpecialKachi => {
-                    sink.write_str("入玉勝ち")?;
-                    offset += 8;
-                }
-                MoveSpecial::SpecialTsumi => {
-                    sink.write_str("詰み")?;
-                    offset += 4;
-                }
-                // TODO: SpecialIllegalActionBlack, SpecialIllegalActionWhite, SpecialFuzumi, SpecialError, etc...
-                _ => sink.write_str("中断")?,
             }
-        } else {
-            unreachable!()
+        } else if let Some(special) = mf.special {
+            let to_move = match (i % 2 == 1, first) {
+                (true, side) => side,
+                (false, Color::Black) => Color::White,
+                (false, Color::White) => Color::Black,
+            };
+            let word = special_word(special, to_move);
+            sink.write_str(word)?;
+            // Two columns a character, like the rest of the line.
+            offset += 2 * word.chars().count();
         }
         if let Some(time) = mf.time {
-            (0..13 - offset).try_for_each(|_| sink.write_char(' '))?;
+            // The widest move `normalize` replays is 12 columns. A hand-built one, or one
+            // after a special, can be wider (a promoted piece marked `promote`), and must
+            // not underflow.
+            (0..13usize.saturating_sub(offset)).try_for_each(|_| sink.write_char(' '))?;
             sink.write_fmt(format_args!(
                 "({:2}:{:02}/{:02}:{:02}:{:02})",
                 time.now.m,
@@ -141,8 +173,13 @@ fn write_move_lines<W: Write>(moves: &[MoveFormat], index: usize, sink: &mut W) 
                 sink.write_char('\n')?;
             }
         }
-        if let Some(ref forks) = mf.forks {
-            for fork in forks {
+        // A fork with nothing to write would leave a bare 変化 header, and two of those
+        // after the last block of moves do not read back.
+        for fork in mf.forks.iter().flatten() {
+            if fork
+                .iter()
+                .any(|mf| mf.move_.is_some() || mf.special.is_some())
+            {
                 forks_stack.push((i, fork));
             }
         }
@@ -150,12 +187,12 @@ fn write_move_lines<W: Write>(moves: &[MoveFormat], index: usize, sink: &mut W) 
     while let Some((i, fork)) = forks_stack.pop() {
         sink.write_char('\n')?;
         sink.write_fmt(format_args!("変化：{}手\n", i))?;
-        write_move_lines(fork, i, sink)?;
+        write_move_lines(fork, i, first, sink)?;
     }
     Ok(())
 }
 
-fn write_moves<W: Write>(moves: &[MoveFormat], sink: &mut W) -> Result {
+fn write_moves<W: Write>(moves: &[MoveFormat], first: Color, sink: &mut W) -> Result {
     sink.write_str("手数----指手---------消費時間--\n")?;
     if let Some(comments) = moves.first().and_then(|mf| mf.comments.as_ref()) {
         for comment in comments {
@@ -166,7 +203,7 @@ fn write_moves<W: Write>(moves: &[MoveFormat], sink: &mut W) -> Result {
             sink.write_char('\n')?;
         }
     }
-    write_move_lines(moves.get(1..).unwrap_or_default(), 1, sink)
+    write_move_lines(moves.get(1..).unwrap_or_default(), 1, first, sink)
 }
 
 #[cfg(test)]
@@ -183,6 +220,35 @@ mod tests {
 "#[1..],
             JsonKifuFormat::default().to_kif_owned()
         );
+    }
+
+    #[test]
+    fn wide_move_with_time() {
+        // `13 - offset` underflowed for a move wider than the column: a panic in debug,
+        // and a loop of 2^64 spaces in release. No move `normalize` replays is that wide.
+        let jkf = JsonKifuFormat {
+            moves: vec![
+                MoveFormat::default(),
+                MoveFormat {
+                    move_: Some(MoveMoveFormat {
+                        color: Color::Black,
+                        from: Some(PlaceFormat { x: 1, y: 3 }),
+                        to: PlaceFormat { x: 1, y: 2 },
+                        piece: Kind::NY,
+                        same: None,
+                        promote: Some(true),
+                        capture: None,
+                        relative: None,
+                    }),
+                    time: Some(Time::default()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        assert!(jkf
+            .to_kif_owned()
+            .contains("   1 １二成香成(13)( 0:00/00:00:00)\n"));
     }
 
     #[test]

@@ -1,12 +1,16 @@
-use super::kakinoki::{move_comment_line, move_to, parse_without_moves, piece_kind};
+use super::kakinoki::{
+    color_prefix, comment_line, move_comment_line, move_to, parse_without_moves, piece_kind,
+    special_word,
+};
 use crate::jkf::*;
+use crate::normalizer::initial_side_to_move;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
-use nom::character::complete::{line_ending, space0};
-use nom::combinator::{map, opt, value};
+use nom::character::complete::{digit1, line_ending, multispace0, not_line_ending};
+use nom::combinator::{all_consuming, map, opt, value};
 use nom::error::VerboseError;
 use nom::multi::{many0, many1};
-use nom::sequence::{pair, preceded, tuple};
+use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
 
 fn single_move(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
@@ -15,7 +19,8 @@ fn single_move(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
             alt((value(Color::Black, tag("▲")), value(Color::White, tag("△")))),
             move_to,
             piece_kind,
-            opt(alt((value(true, tag("成")), value(false, tag("不成"))))),
+            // The disambiguation comes before `成` / `不成`, as in the official notation
+            // and in this crate's writer: `△５七桂左成`.
             opt(alt((
                 value(Relative::LU, tag("左上")),
                 value(Relative::LM, tag("左寄")),
@@ -31,12 +36,11 @@ fn single_move(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
                 value(Relative::D, tag("引")),
                 value(Relative::H, tag("打")),
             ))),
-            preceded(
-                tuple((space0, opt(line_ending))),
-                opt(many1(move_comment_line)),
-            ),
+            opt(alt((value(true, tag("成")), value(false, tag("不成"))))),
+            // A comment may come after a blank line, or indented, as in KIF.
+            opt(many1(preceded(multispace0, move_comment_line))),
         )),
-        |(c, to, kind, promote, relative, comments)| {
+        |(c, to, kind, relative, promote, comments)| {
             // To disambiguate `Normal` move or `Drop` move, "打" will be parsed as `Some(PlaceFormat { x: 0, y: 0 })`
             let from = if relative == Some(Relative::H) {
                 Some(PlaceFormat { x: 0, y: 0 })
@@ -61,30 +65,140 @@ fn single_move(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
     )(input)
 }
 
-fn moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
+// Shogi DB2 writes how the game ended as one more move, in KIF's words (`… ▲７八玉 △投了`),
+// before the `まで…` line. Its mark need not be the side to move's (`△５五歩 △投了`), so
+// only the word is read.
+fn result_token(input: &str) -> IResult<&str, MoveSpecial, VerboseError<&str>> {
+    preceded(alt((tag("▲"), tag("△"))), special_word)(input)
+}
+
+// Shogi DB2's token aside, KI2 has no move line for how a game ended: the `まで…` line
+// that closes the record says it. A wording not listed here still closes the record,
+// since the moves are all there, but it gives no special.
+//
+// Each wording names the side Kifu for Windows and tsshogi name for it, and the name is
+// read only for 反則勝ち, where JKF needs to know whose foul it was. json-kifu-format and
+// tsshogi read the others without it too.
+fn result_line(input: &str) -> IResult<&str, Option<MoveSpecial>, VerboseError<&str>> {
+    delimited(
+        tuple((tag("まで"), digit1, tag("手"))),
+        opt(alt((
+            value(
+                MoveSpecial::SpecialTimeUp,
+                tuple((tag("で時間切れにより"), color_prefix, tag("の勝ち"))),
+            ),
+            // The winner is named, so the foul was the other side's.
+            map(
+                delimited(tag("で"), color_prefix, tag("の反則勝ち")),
+                |winner| match winner {
+                    Color::Black => MoveSpecial::SpecialIllegalActionWhite,
+                    Color::White => MoveSpecial::SpecialIllegalActionBlack,
+                },
+            ),
+            value(
+                MoveSpecial::SpecialIllegalMove,
+                tuple((tag("で"), color_prefix, tag("の反則負け"))),
+            ),
+            value(
+                MoveSpecial::SpecialKachi,
+                tuple((tag("で"), color_prefix, tag("の入玉勝ち"))),
+            ),
+            value(
+                MoveSpecial::SpecialToryo,
+                tuple((tag("で"), color_prefix, tag("の勝ち"))),
+            ),
+            value(MoveSpecial::SpecialChudan, tag("で中断")),
+            value(MoveSpecial::SpecialChudan, tag("で封じ手")),
+            value(MoveSpecial::SpecialJishogi, tag("で持将棋")),
+            value(MoveSpecial::SpecialSennichite, tag("で千日手")),
+            value(MoveSpecial::SpecialFuzumi, tag("で不詰")),
+            value(MoveSpecial::SpecialTsumi, pair(opt(tag("で")), tag("詰"))),
+        ))),
+        pair(not_line_ending, line_ending),
+    )(input)
+}
+
+// `first` is the side to move in the initial position.
+fn moves<'a>(
+    first: Color,
+) -> impl FnMut(&'a str) -> IResult<&'a str, Vec<MoveFormat>, VerboseError<&'a str>> {
     map(
-        pair(
-            preceded(many0(line_ending), opt(many1(move_comment_line))),
-            many0(single_move),
-        ),
-        |(comments, v)| {
-            [
+        tuple((
+            opt(many1(preceded(multispace0, move_comment_line))),
+            // A blank line between moves does not end the game.
+            many0(preceded(multispace0, single_move)),
+            // Comments after the token are the special's.
+            opt(preceded(
+                multispace0,
+                pair(
+                    result_token,
+                    many0(preceded(multispace0, move_comment_line)),
+                ),
+            )),
+            opt(preceded(multispace0, result_line)),
+            // tsshogi writes a special's comments after the `まで…` line.
+            opt(many1(preceded(multispace0, move_comment_line))),
+        )),
+        move |(comments, mut v, token, made, trailing)| {
+            let (token, mut after) = match token {
+                Some((token, comments)) => (Some(token), comments),
+                None => (None, Vec::new()),
+            };
+            after.extend(trailing.into_iter().flatten());
+            // The `まで…` line names the winner, so it is read over the token. The token's
+            // 反則勝ち is a win for the side to move, on the foul of whoever moved last, or
+            // with no move yet, of the side the initial position does not have to move.
+            let special = made.flatten().or_else(|| match token? {
+                MoveSpecial::SpecialIllegalActionBlack | MoveSpecial::SpecialIllegalActionWhite => {
+                    let offender = match v.last().and_then(|mf| mf.move_) {
+                        Some(mmf) => mmf.color,
+                        None if first == Color::Black => Color::White,
+                        None => Color::Black,
+                    };
+                    Some(match offender {
+                        Color::Black => MoveSpecial::SpecialIllegalActionBlack,
+                        Color::White => MoveSpecial::SpecialIllegalActionWhite,
+                    })
+                }
+                special => Some(special),
+            });
+            if let Some(special) = special {
+                v.push(MoveFormat {
+                    special: Some(special),
+                    ..Default::default()
+                });
+            }
+            let mut moves = [
                 vec![MoveFormat {
                     comments,
                     ..Default::default()
                 }],
                 v,
             ]
-            .concat()
+            .concat();
+            // They belong to the last entry: the special, else the last move, else
+            // `moves[0]`.
+            if let Some(last) = moves.last_mut().filter(|_| !after.is_empty()) {
+                last.comments.get_or_insert_with(Vec::new).extend(after);
+            }
+            moves
         },
-    )(input)
+    )
 }
 
 pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifuFormat, VerboseError<&str>> {
-    map(pair(parse_without_moves, moves), |(mut jkf, moves)| {
-        jkf.moves.extend(moves);
-        jkf
-    })(input)
+    // All of the input has to be read, as for KIF: `many0(single_move)` used to stop at
+    // anything it could not take, and the rest of the file was dropped without a word.
+    // As for KIF, trailing `#` comment lines may be left over.
+    all_consuming(terminated(
+        |input| {
+            let (input, mut jkf) = parse_without_moves(input)?;
+            let (input, v) = moves(initial_side_to_move(jkf.initial.as_ref()))(input)?;
+            jkf.moves.extend(v);
+            Ok((input, jkf))
+        },
+        pair(many0(preceded(multispace0, comment_line)), multispace0),
+    ))(input)
 }
 
 #[cfg(test)]
@@ -226,6 +340,25 @@ mod tests {
             )),
             single_move("▲８二金打")
         );
+        assert_eq!(
+            Ok((
+                "",
+                MoveFormat {
+                    move_: Some(MoveMoveFormat {
+                        color: Color::Black,
+                        from: None,
+                        to: PlaceFormat { x: 3, y: 3 },
+                        piece: Kind::GI,
+                        same: None,
+                        promote: Some(true),
+                        capture: None,
+                        relative: Some(Relative::L),
+                    }),
+                    ..Default::default()
+                }
+            )),
+            single_move("▲３三銀左成")
+        );
     }
 
     #[test]
@@ -238,7 +371,7 @@ mod tests {
                     ..Default::default()
                 }]
             )),
-            moves("*comment\n")
+            moves(Color::Black)("*comment\n")
         );
         assert_eq!(
             Ok((
@@ -286,7 +419,7 @@ mod tests {
                     }
                 ]
             )),
-            moves("▲６八銀 △３四歩 ▲５六歩")
+            moves(Color::Black)("▲６八銀 △３四歩 ▲５六歩")
         )
     }
 
@@ -333,7 +466,7 @@ mod tests {
                     },
                 ]
             )),
-            moves(
+            moves(Color::Black)(
                 &r#"
 △７四歩
 *-2732

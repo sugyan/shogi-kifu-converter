@@ -4,6 +4,7 @@ use thiserror::Error;
 
 /// An error that can occur while converting from/into [`shogi_core::Position`]
 #[derive(Error, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum ConvertError {
     /// Board data is required if `preset` is [`PresetOther`](crate::jkf::Preset::PresetOther)
     #[error("Invalid initial board: no data with preset `OTHER`")]
@@ -21,6 +22,7 @@ pub enum ConvertError {
 
 /// An error that can occur while normalizing [`JsonKifuFormat`](crate::jkf::JsonKifuFormat)
 #[derive(Error, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum NormalizeError {
     /// Couldn't disambiguous the [`jkf::MoveMoveFormat.from`](crate::jkf::MoveMoveFormat::from)
     #[error("Move `from` is ambiguous: {0:?}")]
@@ -43,10 +45,14 @@ pub enum NormalizeError {
     /// A hand holds more pieces of one kind than a kifu can express
     #[error("Too many pieces in hand: {1} {0:?}")]
     HandCountOutOfRange(crate::jkf::Kind, u8),
+    /// A move entry past `moves[0]` has neither a [`move_`](crate::jkf::MoveFormat::move_) nor a [`special`](crate::jkf::MoveFormat::special)
+    #[error("Move entry has neither `move` nor `special`")]
+    NoMoveOrSpecial,
 }
 
 /// An error that can occur while parsing kifu data
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum ParseError {
     /// From [`std::io::Error`]
     #[error(transparent)]

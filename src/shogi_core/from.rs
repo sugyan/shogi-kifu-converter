@@ -1,6 +1,7 @@
 use crate::error::{ConvertError, NormalizeError};
 use crate::jkf;
 use crate::jkf::{Color::*, Kind::*, Preset::*};
+use crate::normalizer::handicap_squares;
 use shogi_core::{Color, Move, PartialPosition, Piece, PieceKind, Position, Square};
 
 impl From<jkf::Color> for Color {
@@ -108,27 +109,7 @@ impl TryFrom<&jkf::Initial> for PartialPosition {
             _ => {
                 let mut pos = PartialPosition::startpos();
                 pos.side_to_move_set(Color::White);
-                #[rustfmt::skip]
-                let drops = match initial.preset {
-                    PresetKY   => vec![Square::SQ_1A],
-                    PresetKYR  => vec![Square::SQ_9A],
-                    PresetKA   => vec![Square::SQ_2B],
-                    PresetHI   => vec![Square::SQ_8B],
-                    PresetHIKY => vec![Square::SQ_8B, Square::SQ_1A],
-                    Preset2    => vec![Square::SQ_8B, Square::SQ_2B],
-                    Preset3    => vec![Square::SQ_8B, Square::SQ_2B, Square::SQ_1A],
-                    Preset4    => vec![Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A],
-                    Preset5    => vec![Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A],
-                    Preset5L   => vec![Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_2A],
-                    Preset6    => vec![Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A, Square::SQ_2A],
-                    Preset7L   => vec![Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A, Square::SQ_2A, Square::SQ_3A],
-                    Preset7R   => vec![Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A, Square::SQ_2A, Square::SQ_7A],
-                    Preset8    => vec![Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A, Square::SQ_2A, Square::SQ_7A, Square::SQ_3A],
-                    Preset10   => vec![Square::SQ_8B, Square::SQ_2B, Square::SQ_9A, Square::SQ_1A, Square::SQ_8A, Square::SQ_2A, Square::SQ_7A, Square::SQ_3A, Square::SQ_6A, Square::SQ_4A],
-                    // Both are taken by the outer `match`
-                    PresetHirate | PresetOther => unreachable!(),
-                };
-                for sq in drops {
+                for &sq in handicap_squares(initial.preset).into_iter().flatten() {
                     pos.piece_set(sq, None);
                 }
                 Ok(pos)
@@ -146,12 +127,18 @@ impl TryFrom<&jkf::JsonKifuFormat> for Position {
         } else {
             Position::startpos()
         };
-        for mf in jkf.moves.iter() {
+        // `moves[0]` is the initial position's comment slot, which `normalize` and the
+        // writers skip too.
+        for mf in jkf.moves.iter().skip(1) {
             if let Some(mv) = &mf.move_ {
                 let mv = mv.try_into()?;
                 pos.make_move(mv).ok_or_else(|| {
                     ConvertError::Normalize(NormalizeError::MakeMoveFailed(mv).to_string())
                 })?;
+            } else if mf.special.is_some() {
+                // The game ends at a special. `normalize` stops there too and does not
+                // check what follows, so playing on could fail on a record it accepted.
+                break;
             }
         }
         Ok(pos)

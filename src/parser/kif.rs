@@ -1,47 +1,54 @@
-use super::kakinoki::{move_comment_line, move_to, not_move_line, parse_without_moves, piece_kind};
+use super::kakinoki::{
+    comment_line, move_comment_line, move_to, not_move_line, parse_without_moves, piece_kind,
+    special_word,
+};
 use crate::jkf::*;
+use crate::normalizer::{initial_side_to_move, invert_colors};
 use nom::branch::alt;
 use nom::bytes::complete::tag;
-use nom::character::complete::{digit1, line_ending, not_line_ending, space0};
-use nom::combinator::{map, map_opt, map_res, opt, value};
+use nom::character::complete::{digit1, line_ending, multispace0, not_line_ending, space0};
+use nom::combinator::{all_consuming, map, map_opt, map_res, not, opt, value};
 use nom::error::VerboseError;
 use nom::multi::{many0, many1};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated, tuple};
 use nom::IResult;
 
+// A blank line has to be read before `not_move_line` wherever that rule may meet one: it
+// reads a blank line together with the line after it, a move included, when the line
+// ending is LF.
+fn blank_line(input: &str) -> IResult<&str, (), VerboseError<&str>> {
+    value((), pair(space0, line_ending))(input)
+}
+
+// The header of the moves: `手数----指手---------消費時間--`.
+fn tesu_line(input: &str) -> IResult<&str, (), VerboseError<&str>> {
+    value((), tuple((tag("手数"), not_line_ending, line_ending)))(input)
+}
+
 fn move_from(input: &str) -> IResult<&str, Option<PlaceFormat>, VerboseError<&str>> {
     alt((
         // To disambiguate `Normal` move or `Drop` move, "打" will be parsed as `Some(PlaceFormat { x: 0, y: 0 })`
         value(Some(PlaceFormat { x: 0, y: 0 }), tag("打")),
-        map(
+        // `(00)` would come out as that same marker and be read as a drop. `normalize`
+        // rejects any other square off the board in the moves it replays.
+        map_opt(
             delimited(tag("("), map_res(digit1, str::parse), tag(")")),
             |d: u8| {
-                Some(PlaceFormat {
+                (d != 0).then_some(Some(PlaceFormat {
                     x: d / 10,
                     y: d % 10,
-                })
+                }))
             },
         ),
     ))(input)
 }
 
 fn move_special(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
-    map(
-        alt((
-            value(MoveSpecial::SpecialToryo, tag("投了")),
-            value(MoveSpecial::SpecialChudan, tag("中断")),
-            value(MoveSpecial::SpecialSennichite, tag("千日手")),
-            value(MoveSpecial::SpecialTimeUp, tag("切れ負け")),
-            value(MoveSpecial::SpecialIllegalMove, tag("反則負け")),
-            value(MoveSpecial::SpecialJishogi, tag("持将棋")),
-            value(MoveSpecial::SpecialKachi, tag("入玉勝ち")),
-            value(MoveSpecial::SpecialTsumi, tag("詰み")),
-        )),
-        |special| MoveFormat {
-            special: Some(special),
-            ..Default::default()
-        },
-    )(input)
+    // 反則勝ち's side depends on the ply, so `move_line` settles it.
+    map(special_word, |special| MoveFormat {
+        special: Some(special),
+        ..Default::default()
+    })(input)
 }
 
 fn move_move(input: &str) -> IResult<&str, MoveFormat, VerboseError<&str>> {
@@ -123,6 +130,21 @@ fn move_line(input: &str) -> IResult<&str, (usize, MoveFormat), VerboseError<&st
             if let Some(mmf) = &mut mf.move_ {
                 mmf.color = [Color::White, Color::Black][i % 2];
             }
+            // 反則勝ち: the side to move by the same parity wins, so the foul is the other
+            // side's.
+            if matches!(
+                mf.special,
+                Some(
+                    MoveSpecial::SpecialIllegalActionBlack | MoveSpecial::SpecialIllegalActionWhite
+                )
+            ) {
+                mf.special = Some(
+                    [
+                        MoveSpecial::SpecialIllegalActionBlack,
+                        MoveSpecial::SpecialIllegalActionWhite,
+                    ][i % 2],
+                );
+            }
             mf.time = time;
             (i, mf)
         },
@@ -131,7 +153,7 @@ fn move_line(input: &str) -> IResult<&str, (usize, MoveFormat), VerboseError<&st
 
 fn move_with_comments(input: &str) -> IResult<&str, (usize, MoveFormat), VerboseError<&str>> {
     map(
-        pair(move_line, many0(move_comment_line)),
+        pair(move_line, many0(preceded(multispace0, move_comment_line))),
         |((i, mf), comments)| {
             (
                 i,
@@ -146,28 +168,44 @@ fn move_with_comments(input: &str) -> IResult<&str, (usize, MoveFormat), Verbose
 
 fn moves_with_index(input: &str) -> IResult<&str, (usize, Vec<MoveFormat>), VerboseError<&str>> {
     map(
-        terminated(many1(move_with_comments), opt(not_move_line)),
+        // Blank lines mean nothing between the moves, their comments and the line after
+        // them (`まで…`, a 変化 header). They used to: with LF, `not_move_line` read a blank
+        // line and the next one as one line, and the move or comment on it was lost; with
+        // CRLF it read a blank line on its own, in the place of `まで…`.
+        terminated(
+            many1(preceded(multispace0, move_with_comments)),
+            opt(preceded(multispace0, not_move_line)),
+        ),
         |v| (v[0].0, v.into_iter().map(|(_, mf)| mf).collect()),
     )(input)
 }
 
-fn main_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
+// Also returns the number of the first move line, if there is one.
+fn main_moves(input: &str) -> IResult<&str, (Option<usize>, Vec<MoveFormat>), VerboseError<&str>> {
     map(
-        pair(opt(many1(move_comment_line)), opt(moves_with_index)),
+        // Like a move's comments, these may come after a blank line or an indent.
+        pair(
+            opt(many1(preceded(multispace0, move_comment_line))),
+            opt(moves_with_index),
+        ),
         |(comments, o)| {
-            [
-                vec![MoveFormat {
-                    comments,
-                    ..Default::default()
-                }],
-                o.map_or(Vec::new(), |(_, v)| v),
-            ]
-            .concat()
+            let (first, moves) = match o {
+                Some((i, v)) => (Some(i), v),
+                None => (None, Vec::new()),
+            };
+            let initial = MoveFormat {
+                comments,
+                ..Default::default()
+            };
+            (first, [vec![initial], moves].concat())
         },
     )(input)
 }
 
-fn entire_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str>> {
+// Also returns the number of the first move line of the main line, if there is one.
+fn entire_moves(
+    input: &str,
+) -> IResult<&str, (Option<usize>, Vec<MoveFormat>), VerboseError<&str>> {
     // The ply a fork branches at is the number printed in the file, so it can name a
     // ply that does not exist in the line it attaches to. Returns `None` in that case
     // instead of indexing out of bounds.
@@ -203,24 +241,56 @@ fn entire_moves(input: &str) -> IResult<&str, Vec<MoveFormat>, VerboseError<&str
 
     map_opt(
         pair(
-            // Exactly one line, the 手数 header: `not_move_line` does not exclude `&`,
-            // so a greedy `many0` would eat a bookmark comment that belongs to
-            // `main_moves` and so to `moves[0]`.
-            preceded(opt(not_move_line), main_moves),
-            many0(preceded(many0(not_move_line), moves_with_index)),
+            // The 手数 header, which may follow blank lines. With no header, one line no
+            // other rule takes is skipped in its place, as before, but only right after
+            // the header lines. Past a blank line it may be a bookmark, a move indented
+            // with a tab or a header line, and is left to the rules below, which read it
+            // or reject the record. One line at most, since `not_move_line` does not
+            // exclude `&`, and a greedy `many0` would eat a bookmark comment that belongs
+            // to `main_moves` and so to `moves[0]`.
+            preceded(
+                alt((
+                    preceded(many0(blank_line), tesu_line),
+                    value((), opt(preceded(not(blank_line), not_move_line))),
+                )),
+                main_moves,
+            ),
+            // The lines before a 変化 block: its header, and whatever else no rule takes.
+            many0(preceded(
+                many0(preceded(many0(blank_line), not_move_line)),
+                moves_with_index,
+            )),
         ),
-        merge_forks,
+        |((first, moves), forks)| Some((first, merge_forks((moves, forks))?)),
     )(input)
 }
 
 pub(crate) fn parse(input: &str) -> IResult<&str, JsonKifuFormat, VerboseError<&str>> {
-    map(
-        pair(parse_without_moves, entire_moves),
-        |(mut jkf, moves)| {
-            jkf.moves.extend(moves);
-            jkf
-        },
-    )(input)
+    // All of the input has to be read. A line no rule takes used to end the moves there,
+    // and everything after it was dropped without a word. Only trailing whitespace and
+    // `#` comment lines may be left over: IS-SHOGI ends a record with one.
+    all_consuming(terminated(
+        map(
+            pair(parse_without_moves, entire_moves),
+            |(mut jkf, (first, moves))| {
+                jkf.moves.extend(moves);
+                // The plies are coloured by the parity of their numbers, Black at the odd
+                // ones. `normalize` inverts them when White is to move and the move at ply
+                // 1 is coloured Black, which it is when the record numbers that ply odd. A
+                // record that opens with a special has no move there to go by, so it is
+                // done here from the number: the side of a 反則勝ち, and the forks at that
+                // ply.
+                if initial_side_to_move(jkf.initial.as_ref()) == Color::White
+                    && first.is_some_and(|i| i % 2 == 1)
+                    && jkf.moves.get(1).is_some_and(|mf| mf.move_.is_none())
+                {
+                    invert_colors(jkf.moves.get_mut(1..).unwrap_or_default());
+                }
+                jkf
+            },
+        ),
+        pair(many0(preceded(multispace0, comment_line)), multispace0),
+    ))(input)
 }
 
 #[cfg(test)]
@@ -487,6 +557,10 @@ mod tests {
 3 中断 ( 0:03/ 0:00:19)
 "#[1..],
             )
+            .map(|(rest, (first, moves))| {
+                assert_eq!(first, Some(1));
+                (rest, moves)
+            })
         );
         assert_eq!(
             Ok((
@@ -528,6 +602,10 @@ mod tests {
   1 ２六歩(27) ( 0:01/00:00:01)
 "#[1..]
             )
+            .map(|(rest, (first, moves))| {
+                assert_eq!(first, Some(1));
+                (rest, moves)
+            })
         )
     }
 
@@ -575,8 +653,9 @@ mod tests {
   15 ７七銀(68)    (00:00 / 00:00:00)
 "#[1..];
         let ret = entire_moves(input);
-        let (rest, moves) = ret.expect("failed to parse");
+        let (rest, (first, moves)) = ret.expect("failed to parse");
         assert!(rest.is_empty());
+        assert_eq!(first, Some(1));
         assert_eq!(13, moves.len());
         for (i, m) in moves.iter().enumerate() {
             match i {
