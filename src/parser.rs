@@ -291,6 +291,119 @@ mod tests {
     }
 
     #[test]
+    fn csa_position_from_every_description() {
+        use crate::jkf::Hand;
+
+        // CSA puts pieces with `P+`/`P-` lines on top of a `PI` or `P1`..`P9` board, but
+        // only one of the three was read: with a grid the placements were dropped, and
+        // with `PI` the whole layout was replaced by them. Here 平手 with White's rook
+        // moved to 5五, with `PI` and with a grid.
+        let initial = |csa: &str| {
+            let jkf = parse_csa_str(csa).unwrap_or_else(|e| panic!("{csa}: {e}"));
+            jkf.initial.expect("initial")
+        };
+        let grid = [
+            "P1-KY-KE-GI-KI-OU-KI-GI-KE-KY",
+            "P2 *  *  *  *  *  *  * -KA * ",
+            "P3-FU-FU-FU-FU-FU-FU-FU-FU-FU",
+            "P4 *  *  *  *  *  *  *  *  * ",
+            "P5 *  *  *  * -HI *  *  *  * ",
+            "P6 *  *  *  *  *  *  *  *  * ",
+            "P7+FU+FU+FU+FU+FU+FU+FU+FU+FU",
+            "P8 * +KA *  *  *  *  * +HI * ",
+            "P9+KY+KE+GI+KI+OU+KI+GI+KE+KY",
+        ];
+        let moved = initial(&format!("V2.2\n{}\n-\n", grid.join("\n")));
+        assert_eq!(initial("V2.2\nPI82HI\nP-55HI\n-\n"), moved);
+        let without = grid.map(|row| row.replacen("-HI", " * ", 1)).join("\n");
+        assert_eq!(initial(&format!("V2.2\n{without}\nP-55HI\n-\n")), moved);
+        // And `AL` gives out what is left after them.
+        let kings = "P1 *  *  *  * -OU *  *  *  * \nP2 *  *  *  *  *  *  *  *  * \nP3 *  *  *  *  *  *  *  *  * \nP4 *  *  *  *  *  *  *  *  * \nP5 *  *  *  *  *  *  *  *  * \nP6 *  *  *  *  *  *  *  *  * \nP7 *  *  *  *  *  *  *  *  * \nP8 *  *  *  *  *  *  *  *  * \nP9 *  *  *  * +OU *  *  *  * ";
+        let data = initial(&format!("V2.2\n{kings}\nP+55KA\nP-00AL\n+\n"))
+            .data
+            .expect("data");
+        assert_eq!(data.board[4][4].kind, Some(crate::jkf::Kind::KA));
+        assert_eq!(
+            data.hands[1],
+            Hand {
+                FU: 18,
+                KY: 4,
+                KE: 4,
+                GI: 4,
+                KI: 4,
+                KA: 1,
+                HI: 2
+            }
+        );
+    }
+
+    #[test]
+    fn csa_al_gives_the_rest() {
+        use crate::jkf::Hand;
+
+        // `AL` gives one side every piece that is neither on the board nor in the other
+        // hand. The other hand was not taken off, so the usual tsume-shogi layout, one
+        // side's hand listed and `AL` for the other, read with too many pieces.
+        let hands = |csa: &str| {
+            let jkf = parse_csa_str(csa).unwrap_or_else(|e| panic!("{csa}: {e}"));
+            jkf.initial.and_then(|i| i.data).expect("data").hands
+        };
+        let [black, white] = hands("V2.2\nP-51OU\nP+59OU\nP+00KI\nP-00AL\n+\n");
+        assert_eq!(
+            (black.KI, white),
+            (
+                1,
+                Hand {
+                    FU: 18,
+                    KY: 4,
+                    KE: 4,
+                    GI: 4,
+                    KI: 3,
+                    KA: 2,
+                    HI: 2
+                }
+            )
+        );
+        // json-kifu-format's own example of it.
+        let [_, white] = hands("V2.2\nP+23TO\nP-11OU21KE\nP+00KI\nP-00AL\n+\n");
+        assert_eq!(
+            white,
+            Hand {
+                FU: 17,
+                KY: 4,
+                KE: 3,
+                GI: 4,
+                KI: 3,
+                KA: 2,
+                HI: 2
+            }
+        );
+        // A piece listed after `AL` is not counted twice either.
+        let [black, _] = hands("V2.2\nP-51OU\nP+59OU\nP+00AL\nP+00FU\n+\n");
+        assert_eq!(black.FU, 18);
+    }
+
+    #[test]
+    fn csa_impossible_positions_are_errors() {
+        // `AL` stands for pieces in hand, and only once: on a board square it left a
+        // square with a colour and no piece, and a second one gave out a second set. A
+        // `PI` square names the piece it takes away, which was not checked: `PI82KA`
+        // read as 飛車落ち, and `PI59KI` took Black's king.
+        let kings_al = "P1 *  *  *  * -OU *  *  *  * \nP2 *  *  *  *  *  *  *  *  * \nP3 *  *  *  *  *  *  *  *  * \nP4 *  *  *  *  *  *  *  *  * \nP5 *  *  *  * +AL *  *  *  * \nP6 *  *  *  *  *  *  *  *  * \nP7 *  *  *  *  *  *  *  *  * \nP8 *  *  *  *  *  *  *  *  * \nP9 *  *  *  * +OU *  *  *  * ";
+        for csa in [
+            String::from("V2.2\nP-51OU\nP+59OU\nP+55AL\n+\n"),
+            format!("V2.2\n{kings_al}\n+\n"),
+            String::from("V2.2\nP-51OU\nP+59OU\nP+00AL\nP-00AL\n+\n"),
+            String::from("V2.2\nPI82KA\n-\n"),
+            String::from("V2.2\nPI59KI\n+\n"),
+        ] {
+            let err = parse_csa_str(&csa).expect_err(&csa);
+            assert!(matches!(err, ParseError::CsaConvert(_)), "{csa}: {err:?}");
+        }
+        assert!(parse_csa_str("V2.2\nPI82HI22KA\n-\n").is_ok());
+    }
+
+    #[test]
     fn long_thinks_do_not_overflow_the_totals() {
         use crate::jkf::TimeFormat;
 

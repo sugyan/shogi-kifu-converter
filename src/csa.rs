@@ -30,21 +30,62 @@ fn validate_squares(record: &GameRecord) -> Result<(), ParseError> {
     Ok(())
 }
 
-/// A piece in hand is one of FU to HI, or `AL` for the rest of them. A king or a promoted
-/// piece at `00` is rejected here; `From<Position> for Initial` leaves one out.
-fn validate_hands(record: &GameRecord) -> Result<(), ParseError> {
+/// What a CSA position cannot hold, rejected here. `From<Position> for Initial` cannot
+/// fail, and would leave such an entry out or read it as something else:
+/// - a piece in hand is one of FU to HI, or `AL` for the rest of them;
+/// - `AL` stands only in hand, and only once;
+/// - a `PI` square names the piece the 平手 layout has there.
+///
+/// The squares are checked by [`validate_squares`] first.
+fn validate_position(pos: &Position) -> Result<(), ParseError> {
     use csa::PieceType::*;
-    if record.start_pos.add_pieces.iter().any(|&(_, sq, pt)| {
-        sq.file == 0
-            && sq.rank == 0
+    let in_hand = |sq: csa::Square| sq.file == 0 && sq.rank == 0;
+    for &(_, sq, pt) in &pos.add_pieces {
+        if in_hand(sq)
             && !matches!(
                 pt,
                 Pawn | Lance | Knight | Silver | Gold | Bishop | Rook | All
             )
-    }) {
+        {
+            return Err(ParseError::CsaConvert(
+                "a king or a promoted piece cannot be in hand",
+            ));
+        }
+    }
+    let on_board = pos.add_pieces.iter().filter(|&&(_, sq, _)| !in_hand(sq));
+    if on_board.map(|&(_, _, pt)| pt).any(|pt| matches!(pt, All))
+        || pos
+            .bulk
+            .iter()
+            .flatten()
+            .flatten()
+            .any(|cell| matches!(cell, Some((_, All))))
+    {
         return Err(ParseError::CsaConvert(
-            "a king or a promoted piece cannot be in hand",
+            "`AL` stands only for pieces in hand",
         ));
+    }
+    if pos
+        .add_pieces
+        .iter()
+        .filter(|&&(_, _, pt)| matches!(pt, All))
+        .count()
+        > 1
+    {
+        return Err(ParseError::CsaConvert(
+            "`AL` gives the rest of the pieces to one side only",
+        ));
+    }
+    for &(sq, pt) in &pos.drop_pieces {
+        let there = HIRATE_BOARD
+            .get(usize::from(sq.file).wrapping_sub(1))
+            .and_then(|file| file.get(usize::from(sq.rank).wrapping_sub(1)))
+            .and_then(|p| p.kind);
+        if there.is_none() || Kind::try_from(pt).ok() != there {
+            return Err(ParseError::CsaConvert(
+                "a `PI` square names a piece the 平手 layout does not have there",
+            ));
+        }
     }
     Ok(())
 }
@@ -54,7 +95,7 @@ impl TryFrom<GameRecord> for JsonKifuFormat {
 
     fn try_from(record: GameRecord) -> Result<Self, Self::Error> {
         validate_squares(&record)?;
-        validate_hands(&record)?;
+        validate_position(&record.start_pos)?;
         // Header
         let mut header = HashMap::new();
         if let Some(s) = record.black_player {
@@ -105,31 +146,25 @@ fn square_mut(board: &mut [[Piece; 9]; 9], sq: csa::Square) -> Option<&mut Piece
         .get_mut(rank.checked_sub(1)?)
 }
 
+/// The board is the `P1`..`P9` grid if there is one, else the 平手 layout less the `PI`
+/// squares, with every `P+`/`P-` piece put on top. A position given only by `P+`/`P-`
+/// lines starts from an empty board, which a bare `PI` line cannot be told apart from.
+/// `AL` gives its side the pieces that are neither on the board nor in either hand.
+///
+/// This conversion cannot fail, so it leaves out what a CSA position cannot hold, which
+/// [`parse_csa_str`](crate::parser::parse_csa_str) rejects: a king or a promoted piece in
+/// hand, a second `AL`, and an `AL` on the board, which comes out as a square with a
+/// colour and no piece.
 impl From<Position> for Initial {
-    fn from(mut pos: Position) -> Self {
-        let mut all_pieces = Hand {
-            FU: 18,
-            KY: 4,
-            KE: 4,
-            GI: 4,
-            KI: 4,
-            KA: 2,
-            HI: 2,
-        };
-        // split to hands' and board's
-        let mut hand_pieces = Vec::new();
-        pos.add_pieces.retain(|&(c, sq, pt)| {
-            if sq.file == 0 && sq.rank == 0 {
-                hand_pieces.push((c, pt));
-                false
-            } else {
-                true
-            }
-        });
+    fn from(pos: Position) -> Self {
+        let (hand_pieces, placements): (Vec<_>, Vec<_>) = pos
+            .add_pieces
+            .into_iter()
+            .partition(|&(_, sq, _)| sq.file == 0 && sq.rank == 0);
         // Color
         let color = pos.side_to_move.into();
         // Board
-        let board = if let Some(grid) = pos.bulk {
+        let mut board = if let Some(grid) = pos.bulk {
             // 一括表現
             let mut b = [[Piece::empty(); 9]; 9];
             for (i, row) in grid.iter().enumerate() {
@@ -142,7 +177,7 @@ impl From<Position> for Initial {
                 }
             }
             b
-        } else if pos.add_pieces.is_empty() {
+        } else if !pos.drop_pieces.is_empty() || placements.is_empty() {
             // 平手初期配置と駒落ち
             let mut b = HIRATE_BOARD;
             for &(sq, _) in &pos.drop_pieces {
@@ -153,35 +188,50 @@ impl From<Position> for Initial {
             b
         } else {
             // 駒別単独表現
-            let mut b = [[Piece::empty(); 9]; 9];
-            for &(c, sq, pt) in &pos.add_pieces {
-                if let Some(p) = square_mut(&mut b, sq) {
-                    *p = Piece::from((c, pt));
-                }
+            [[Piece::empty(); 9]; 9]
+        };
+        for &(c, sq, pt) in &placements {
+            if let Some(p) = square_mut(&mut board, sq) {
+                *p = Piece::from((c, pt));
             }
-            b
+        }
+        // Hands: the pieces listed first, then `AL` gives one side what is left.
+        let mut rest = Hand {
+            FU: 18,
+            KY: 4,
+            KE: 4,
+            GI: 4,
+            KI: 4,
+            KA: 2,
+            HI: 2,
         };
         for row in &board {
             for col in row {
                 if let Some(unpromoted) = col.kind.map(Kind::unpromoted) {
                     if unpromoted != Kind::OU {
-                        all_pieces.decrement(unpromoted);
+                        rest.decrement(unpromoted);
                     }
                 }
             }
         }
-        // Hands
         let mut hands = [Hand::default(); 2];
-        for &(c, pt) in &hand_pieces {
+        let mut al = None;
+        for &(c, _, pt) in &hand_pieces {
             let index = Into::<Color>::into(c) as usize;
             match Kind::try_from(pt) {
-                // A king or a promoted piece cannot be in hand. `parse_csa_str` rejects one,
-                // and this conversion, which cannot fail, leaves it out.
                 Ok(kind) if kind == Kind::OU || kind.unpromoted() != kind => {}
-                Ok(kind) => hands[index].increment(kind),
+                Ok(kind) => {
+                    hands[index].increment(kind);
+                    rest.decrement(kind);
+                }
                 // In case PieceType::All
-                Err(_) => hands[index] = all_pieces,
+                Err(_) => {
+                    al.get_or_insert(index);
+                }
             }
+        }
+        if let Some(index) = al {
+            hands[index].add(&rest);
         }
         Self {
             preset: Preset::PresetOther,

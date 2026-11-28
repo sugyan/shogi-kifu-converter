@@ -160,8 +160,18 @@ impl Hand {
             _ => unreachable!(),
         }
     }
-    // Used to work out what `AL` stands for by subtracting the board from a full set,
-    // so a record with more of a kind than the standard set must not overflow.
+    // Piece by piece, saturating for the same reason `increment` does.
+    pub(crate) fn add(&mut self, other: &Hand) {
+        self.FU = self.FU.saturating_add(other.FU);
+        self.KY = self.KY.saturating_add(other.KY);
+        self.KE = self.KE.saturating_add(other.KE);
+        self.GI = self.GI.saturating_add(other.GI);
+        self.KI = self.KI.saturating_add(other.KI);
+        self.KA = self.KA.saturating_add(other.KA);
+        self.HI = self.HI.saturating_add(other.HI);
+    }
+    // Used to work out what `AL` stands for by subtracting the board and the hands from a
+    // full set, so a record with more of a kind than the standard set must not overflow.
     pub(crate) fn decrement(&mut self, kind: Kind) {
         match kind {
             Kind::FU => self.FU = self.FU.saturating_sub(1),
