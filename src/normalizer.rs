@@ -160,8 +160,18 @@ impl Hand {
             _ => unreachable!(),
         }
     }
-    // Used to work out what `AL` stands for by subtracting the board from a full set,
-    // so a record with more of a kind than the standard set must not overflow.
+    // Piece by piece, saturating for the same reason `increment` does.
+    pub(crate) fn add(&mut self, other: &Hand) {
+        self.FU = self.FU.saturating_add(other.FU);
+        self.KY = self.KY.saturating_add(other.KY);
+        self.KE = self.KE.saturating_add(other.KE);
+        self.GI = self.GI.saturating_add(other.GI);
+        self.KI = self.KI.saturating_add(other.KI);
+        self.KA = self.KA.saturating_add(other.KA);
+        self.HI = self.HI.saturating_add(other.HI);
+    }
+    // Used to work out what `AL` stands for by subtracting the board and the hands from a
+    // full set, so a record with more of a kind than the standard set must not overflow.
     pub(crate) fn decrement(&mut self, kind: Kind) {
         match kind {
             Kind::FU => self.FU = self.FU.saturating_sub(1),
@@ -176,17 +186,20 @@ impl Hand {
     }
 }
 
+/// Splits `secs` into hours, minutes and seconds under 60. A `TimeFormat` in that form
+/// holds at most 255:59:59, so a longer time comes to that.
+pub(crate) fn hms(secs: u64) -> (u8, u8, u8) {
+    let s = secs.min(255 * 3600 + 59 * 60 + 59);
+    ((s / 3600) as u8, (s / 60 % 60) as u8, (s % 60) as u8)
+}
+
 fn add_timeformat(lhs: &TimeFormat, rhs: &TimeFormat) -> TimeFormat {
-    let s = (lhs.h.unwrap_or_default() + rhs.h.unwrap_or_default()) as u64 * 3600
-        + (lhs.m + rhs.m) as u64 * 60
-        + (lhs.s + rhs.s) as u64;
-    let m = (s / 60) % 60;
-    let h = s / 3600;
-    TimeFormat {
-        h: Some(h as u8),
-        m: m as u8,
-        s: (s % 60) as u8,
-    }
+    // In `u64`: each field of either is a `u8`, and their sums can pass 255.
+    let secs = |t: &TimeFormat| {
+        u64::from(t.h.unwrap_or_default()) * 3600 + u64::from(t.m) * 60 + u64::from(t.s)
+    };
+    let (h, m, s) = hms(secs(lhs) + secs(rhs));
+    TimeFormat { h: Some(h), m, s }
 }
 
 fn pk2k(pk: shogi_core::PieceKind) -> Kind {
@@ -219,6 +232,11 @@ impl JsonKifuFormat {
     /// written out: the writers rely on what this fills in, and write anything else only
     /// as far as their format can express it.
     ///
+    /// A move with no `from` is a drop when it is marked 打 (`relative: H`). Otherwise
+    /// its from-square is worked out from the position, as KI2 needs, and it is a drop
+    /// only if no piece on the board can make it. `parse_jkf_str` and `parse_jkf_file`
+    /// instead read every move with no `from` as a drop, as JKF specifies.
+    ///
     /// # Errors
     ///
     /// Returns [`NormalizeError`] if a line cannot be replayed from its initial position
@@ -226,6 +244,18 @@ impl JsonKifuFormat {
     /// kifu can spell), or if a move entry past `moves[0]` has neither `move` nor
     /// `special`.
     pub fn normalize(&mut self) -> Result<(), NormalizeError> {
+        self.normalize_with(false)
+    }
+
+    // `normalize` for a record read as JKF, which gives every move but a drop its
+    // from-square.
+    pub(crate) fn normalize_jkf(&mut self) -> Result<(), NormalizeError> {
+        self.normalize_with(true)
+    }
+
+    // `from_given`: the record gives the from-square of every move but a drop, so a move
+    // with none is a drop.
+    fn normalize_with(&mut self, from_given: bool) -> Result<(), NormalizeError> {
         check_entries(self.moves.get(1..).unwrap_or_default())?;
         normalize_initial(self)?;
         let pos = if let Some(initial) = &self.initial {
@@ -254,7 +284,7 @@ impl JsonKifuFormat {
         // `moves` may legitimately be empty: the JKF schema puts no lower bound on it,
         // and only `moves[0]` (the initial position's comment slot) would be missing.
         let moves = self.moves.get_mut(1..).unwrap_or_default();
-        normalize_moves(moves, pos, [TimeFormat::default(); 2])?;
+        normalize_moves(moves, pos, [TimeFormat::default(); 2], from_given)?;
         Ok(())
     }
 }
@@ -411,7 +441,11 @@ fn calculate_from(
     }
 }
 
-fn normalize_move(mmf: &mut MoveMoveFormat, pos: &PartialPosition) -> Result<(), NormalizeError> {
+fn normalize_move(
+    mmf: &mut MoveMoveFormat,
+    pos: &PartialPosition,
+    from_given: bool,
+) -> Result<(), NormalizeError> {
     if matches!(
         (mmf.color, pos.side_to_move()),
         (Color::Black, shogi_core::Color::White) | (Color::White, shogi_core::Color::Black)
@@ -431,7 +465,11 @@ fn normalize_move(mmf: &mut MoveMoveFormat, pos: &PartialPosition) -> Result<(),
         Ok(to) => to,
         Err(err) => return Err(NormalizeError::Convert(err.to_string())),
     };
-    if mmf.from.is_none() {
+    // KI2 gives no from-square, so one is worked out from the position. A drop has none
+    // either, and is one as it stands when the record gives every other move its
+    // from-square, as JKF does, or when it is marked 打, as json-kifu-format and this
+    // function write a drop that a piece on the board could also make.
+    if mmf.from.is_none() && !from_given && mmf.relative != Some(Relative::H) {
         mmf.from = calculate_from(mmf, pos, to)?;
     }
     // `(0, 0)` is how a from-square says "drop": the parsers write it for `打` and for
@@ -483,6 +521,15 @@ fn normalize_move(mmf: &mut MoveMoveFormat, pos: &PartialPosition) -> Result<(),
         };
         // Set capture?
         mmf.capture = pos.piece_at(to).map(|p| pk2k(p.piece_kind()));
+    } else {
+        // A drop puts an unpromoted piece on an empty square, so it neither promotes nor
+        // captures. One marked as promoting (KIF `成打`, KI2 `打成`) was played as a plain
+        // drop, and the CSA writer then wrote a promoted piece dropped.
+        if mmf.promote == Some(true) {
+            return Err(NormalizeError::PromotingDrop(to));
+        }
+        mmf.promote = None;
+        mmf.capture = None;
     }
     let mv = match shogi_core::Move::try_from(&*mmf) {
         Ok(mv) => mv,
@@ -523,12 +570,13 @@ fn normalize_moves(
     moves: &mut [MoveFormat],
     mut pos: PartialPosition,
     mut totals: [TimeFormat; 2],
+    from_given: bool,
 ) -> Result<(), NormalizeError> {
     for mf in moves {
         // Normalize forks
         if let Some(forks) = &mut mf.forks {
             for v in forks.iter_mut() {
-                normalize_moves(v, pos.clone(), totals)?;
+                normalize_moves(v, pos.clone(), totals, from_given)?;
             }
         }
         // Calculate total time
@@ -538,7 +586,7 @@ fn normalize_moves(
             time.total = totals[pos.side_to_move().array_index()];
         }
         if let Some(mmf) = &mut mf.move_ {
-            normalize_move(mmf, &pos)?;
+            normalize_move(mmf, &pos, from_given)?;
             let mv = match shogi_core::Move::try_from(&*mmf) {
                 Ok(mv) => mv,
                 Err(err) => return Err(NormalizeError::Convert(err.to_string())),
@@ -559,7 +607,7 @@ mod tests {
     #[test]
     fn normalize_moves_empty() {
         let pos = PartialPosition::startpos();
-        assert!(normalize_moves(&mut [], pos, [TimeFormat::default(); 2]).is_ok());
+        assert!(normalize_moves(&mut [], pos, [TimeFormat::default(); 2], false).is_ok());
     }
 
     #[test]
@@ -582,7 +630,8 @@ mod tests {
                         ..Default::default()
                     }],
                     pos,
-                    [TimeFormat::default(); 2]
+                    [TimeFormat::default(); 2],
+                    false
                 )
                 .is_ok(),
                 "normalize should succeed"
@@ -606,7 +655,8 @@ mod tests {
                         ..Default::default()
                     }],
                     pos,
-                    [TimeFormat::default(); 2]
+                    [TimeFormat::default(); 2],
+                    false
                 )
                 .is_err(),
                 "normalize should fail"

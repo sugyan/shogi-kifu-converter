@@ -143,13 +143,15 @@ pub fn parse_ki2_str(s: &str) -> Result<JsonKifuFormat, ParseError> {
 
 /// Parses a JSON file to [`jkf::JsonKifuFormat`](crate::jkf::JsonKifuFormat)
 ///
+/// A move with no `from` is a drop, as JKF specifies, whether or not it is marked 打.
+///
 /// # Errors
 ///
 /// This function returns [`ConvertError`](crate::error::ConvertError) if it fails to parse the file.
 pub fn parse_jkf_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ParseError> {
     let file = File::open(&path)?;
     let mut jkf = serde_json::from_reader::<_, JsonKifuFormat>(BufReader::new(file))?;
-    if let Err(err) = jkf.normalize() {
+    if let Err(err) = jkf.normalize_jkf() {
         Err(ParseError::Normalize(err.to_string()))
     } else {
         Ok(jkf)
@@ -158,12 +160,14 @@ pub fn parse_jkf_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ParseEr
 
 /// Parses a JSON file to [`jkf::JsonKifuFormat`](crate::jkf::JsonKifuFormat)
 ///
+/// A move with no `from` is a drop, as JKF specifies, whether or not it is marked 打.
+///
 /// # Errors
 ///
 /// This function returns [`ConvertError`](crate::error::ConvertError) if it fails to parse the file.
 pub fn parse_jkf_str(s: &str) -> Result<JsonKifuFormat, ParseError> {
     let mut jkf = serde_json::from_str::<JsonKifuFormat>(s)?;
-    if let Err(err) = jkf.normalize() {
+    if let Err(err) = jkf.normalize_jkf() {
         Err(ParseError::Normalize(err.to_string()))
     } else {
         Ok(jkf)
@@ -258,6 +262,188 @@ mod tests {
         let jkf = parse_csa_str("V2.2\nP+55FU\nP-51OU\nP+59OU\nP+00FU\n+\n").expect("in hand");
         let data = jkf.initial.and_then(|i| i.data).expect("initial data");
         assert_eq!(data.hands[0].FU, 1);
+    }
+
+    #[test]
+    fn csa_hand_holds_only_hand_pieces() {
+        use crate::jkf::{Hand, Initial};
+
+        // A king or a promoted piece cannot be in hand, and `P+00OU` or `P+00TO` reached
+        // `Hand::increment`'s `unreachable!()` from `parse_csa_str`.
+        for piece in ["OU", "TO", "RY"] {
+            let csa = format!("V2.2\nP-51OU\nP+59OU\nP+00{piece}\n+\n");
+            let err = parse_csa_str(&csa).expect_err(&csa);
+            assert!(matches!(err, ParseError::CsaConvert(_)), "{csa}: {err:?}");
+        }
+        // `AL` still gives the rest of the pieces.
+        let jkf = parse_csa_str("V2.2\nP-51OU\nP+59OU\nP+00AL\n+\n").expect("should parse");
+        let data = jkf.initial.and_then(|i| i.data).expect("initial data");
+        assert_eq!(data.hands[0].FU, 18);
+        // The conversion from the csa crate's position cannot fail, so it leaves such a
+        // piece out instead.
+        for piece in ["OU", "TO", "RY"] {
+            let csa = format!("V2.2\nP-51OU\nP+59OU\nP+00{piece}\nP+00FU\n+\n");
+            let record = csa::parse_csa(&csa).expect("reads");
+            let hands = Initial::from(record.start_pos).data.map(|data| data.hands);
+            let fu = Hand {
+                FU: 1,
+                ..Default::default()
+            };
+            assert_eq!(hands, Some([fu, Hand::default()]), "{csa}");
+        }
+    }
+
+    #[test]
+    fn csa_position_from_every_description() {
+        use crate::jkf::Hand;
+
+        // CSA puts pieces with `P+`/`P-` lines on top of a `PI` or `P1`..`P9` board, but
+        // only one of the three was read: with a grid the placements were dropped, and
+        // with `PI` the whole layout was replaced by them. Here 平手 with White's rook
+        // moved to 5五, with `PI` and with a grid.
+        let initial = |csa: &str| {
+            let jkf = parse_csa_str(csa).unwrap_or_else(|e| panic!("{csa}: {e}"));
+            jkf.initial.expect("initial")
+        };
+        let grid = [
+            "P1-KY-KE-GI-KI-OU-KI-GI-KE-KY",
+            "P2 *  *  *  *  *  *  * -KA * ",
+            "P3-FU-FU-FU-FU-FU-FU-FU-FU-FU",
+            "P4 *  *  *  *  *  *  *  *  * ",
+            "P5 *  *  *  * -HI *  *  *  * ",
+            "P6 *  *  *  *  *  *  *  *  * ",
+            "P7+FU+FU+FU+FU+FU+FU+FU+FU+FU",
+            "P8 * +KA *  *  *  *  * +HI * ",
+            "P9+KY+KE+GI+KI+OU+KI+GI+KE+KY",
+        ];
+        let moved = initial(&format!("V2.2\n{}\n-\n", grid.join("\n")));
+        assert_eq!(initial("V2.2\nPI82HI\nP-55HI\n-\n"), moved);
+        let without = grid.map(|row| row.replacen("-HI", " * ", 1)).join("\n");
+        assert_eq!(initial(&format!("V2.2\n{without}\nP-55HI\n-\n")), moved);
+        // And `AL` gives out what is left after them.
+        let kings = "P1 *  *  *  * -OU *  *  *  * \nP2 *  *  *  *  *  *  *  *  * \nP3 *  *  *  *  *  *  *  *  * \nP4 *  *  *  *  *  *  *  *  * \nP5 *  *  *  *  *  *  *  *  * \nP6 *  *  *  *  *  *  *  *  * \nP7 *  *  *  *  *  *  *  *  * \nP8 *  *  *  *  *  *  *  *  * \nP9 *  *  *  * +OU *  *  *  * ";
+        let data = initial(&format!("V2.2\n{kings}\nP+55KA\nP-00AL\n+\n"))
+            .data
+            .expect("data");
+        assert_eq!(data.board[4][4].kind, Some(crate::jkf::Kind::KA));
+        assert_eq!(
+            data.hands[1],
+            Hand {
+                FU: 18,
+                KY: 4,
+                KE: 4,
+                GI: 4,
+                KI: 4,
+                KA: 1,
+                HI: 2
+            }
+        );
+    }
+
+    #[test]
+    fn csa_al_gives_the_rest() {
+        use crate::jkf::Hand;
+
+        // `AL` gives one side every piece that is neither on the board nor in the other
+        // hand. The other hand was not taken off, so the usual tsume-shogi layout, one
+        // side's hand listed and `AL` for the other, read with too many pieces.
+        let hands = |csa: &str| {
+            let jkf = parse_csa_str(csa).unwrap_or_else(|e| panic!("{csa}: {e}"));
+            jkf.initial.and_then(|i| i.data).expect("data").hands
+        };
+        let [black, white] = hands("V2.2\nP-51OU\nP+59OU\nP+00KI\nP-00AL\n+\n");
+        assert_eq!(
+            (black.KI, white),
+            (
+                1,
+                Hand {
+                    FU: 18,
+                    KY: 4,
+                    KE: 4,
+                    GI: 4,
+                    KI: 3,
+                    KA: 2,
+                    HI: 2
+                }
+            )
+        );
+        // json-kifu-format's own example of it.
+        let [_, white] = hands("V2.2\nP+23TO\nP-11OU21KE\nP+00KI\nP-00AL\n+\n");
+        assert_eq!(
+            white,
+            Hand {
+                FU: 17,
+                KY: 4,
+                KE: 3,
+                GI: 4,
+                KI: 3,
+                KA: 2,
+                HI: 2
+            }
+        );
+        // A piece listed after `AL` is not counted twice either.
+        let [black, _] = hands("V2.2\nP-51OU\nP+59OU\nP+00AL\nP+00FU\n+\n");
+        assert_eq!(black.FU, 18);
+    }
+
+    #[test]
+    fn csa_impossible_positions_are_errors() {
+        // `AL` stands for pieces in hand, and only once: on a board square it left a
+        // square with a colour and no piece, and a second one gave out a second set. A
+        // `PI` square names the piece it takes away, which was not checked: `PI82KA`
+        // read as 飛車落ち, and `PI59KI` took Black's king.
+        let kings_al = "P1 *  *  *  * -OU *  *  *  * \nP2 *  *  *  *  *  *  *  *  * \nP3 *  *  *  *  *  *  *  *  * \nP4 *  *  *  *  *  *  *  *  * \nP5 *  *  *  * +AL *  *  *  * \nP6 *  *  *  *  *  *  *  *  * \nP7 *  *  *  *  *  *  *  *  * \nP8 *  *  *  *  *  *  *  *  * \nP9 *  *  *  * +OU *  *  *  * ";
+        for csa in [
+            String::from("V2.2\nP-51OU\nP+59OU\nP+55AL\n+\n"),
+            format!("V2.2\n{kings_al}\n+\n"),
+            String::from("V2.2\nP-51OU\nP+59OU\nP+00AL\nP-00AL\n+\n"),
+            String::from("V2.2\nPI82KA\n-\n"),
+            String::from("V2.2\nPI59KI\n+\n"),
+        ] {
+            let err = parse_csa_str(&csa).expect_err(&csa);
+            assert!(matches!(err, ParseError::CsaConvert(_)), "{csa}: {err:?}");
+        }
+        assert!(parse_csa_str("V2.2\nPI82HI22KA\n-\n").is_ok());
+    }
+
+    #[test]
+    fn long_thinks_do_not_overflow_the_totals() {
+        use crate::jkf::TimeFormat;
+
+        // The totals were added up field by field in `u8`, so the minutes of a total and
+        // of a think overflowed once they came to more than 255 together: a panic in a
+        // debug build and a wrong total in a release one. A think of 197 minutes on a
+        // total of 59 minutes does it, and two-day title matches have such thinks. The
+        // seconds did the same.
+        let head = "手合割：平手\n手数----指手---------消費時間--\n";
+        for (thinks, total) in [
+            (["(59:00/00:59:00)", "(197:00/04:16:00)"], (4, 16, 0)),
+            (["( 0:59/00:00:59)", "( 0:197/00:04:16)"], (0, 4, 16)),
+        ] {
+            let kif = format!(
+                "{head}   1 ７六歩(77)   {}\n   2 ３四歩(33)   ( 0:01/00:00:01)\n   3 ２六歩(27)   {}\n",
+                thinks[0], thinks[1]
+            );
+            let jkf = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{e}"));
+            let (h, m, s) = total;
+            let total = jkf.moves[3].time.map(|t| t.total);
+            assert_eq!(total, Some(TimeFormat { h: Some(h), m, s }), "{kif}");
+        }
+
+        // The hours did the same past 255, in a total or in a single CSA `T`. A normalized
+        // `TimeFormat`, with minutes and seconds under 60, holds at most 255:59:59, and
+        // that is what they now come to.
+        let max = TimeFormat {
+            h: Some(255),
+            m: 59,
+            s: 59,
+        };
+        let csa = "V2.2\nPI\n+\n+7776FU\nT918000\n-3334FU\nT1\n+2726FU\nT7200\n";
+        let jkf = parse_csa_str(csa).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(jkf.moves[3].time.map(|t| t.total), Some(max));
+        let jkf =
+            parse_csa_str("V2.2\nPI\n+\n+7776FU\nT921600\n").unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(jkf.moves[1].time.map(|t| t.now), Some(max));
     }
 
     #[test]
@@ -1231,6 +1417,7 @@ mod tests {
     fn write_then_parse_round_trips_the_corpus() -> Result<()> {
         use crate::converter::{ToCsa, ToKi2, ToKif};
         use crate::jkf::{Color, Initial, Kind};
+        use shogi_core::ToUsi;
 
         // Every other fixture test stops at input -> JKF; nothing checked that the
         // writers emit something these parsers can read. That is the property #20 and
@@ -1256,6 +1443,9 @@ mod tests {
             ("data/tests/csa", "csa"),
             ("data/tests/kif", "kif"),
             ("data/tests/ki2", "ki2"),
+            ("data/tests/csa", "json"),
+            ("data/tests/kif", "json"),
+            ("data/tests/ki2", "json"),
         ] {
             for entry in Path::new(dir).read_dir()? {
                 let path = entry?.path();
@@ -1265,6 +1455,7 @@ mod tests {
                 let original = match ext {
                     "csa" => parse_csa_file(&path),
                     "kif" => parse_kif_file(&path),
+                    "json" => parse_jkf_file(&path),
                     _ => parse_ki2_file(&path),
                 }
                 .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
@@ -1290,6 +1481,14 @@ mod tests {
                         essence(&original),
                         essence(&reparsed),
                         "{} as {format}",
+                        path.display()
+                    );
+                    // `essence` has no from-square, so compare the moves as played too: a
+                    // drop written as a move of the same piece reads back as another game.
+                    assert_eq!(
+                        original.to_usi_owned(),
+                        reparsed.to_usi_owned(),
+                        "{} as {format}: USI",
                         path.display()
                     );
                 }
@@ -1326,6 +1525,151 @@ mod tests {
             }
             assert!(pairs > 0, "no .{utf8} fixtures in {dir}");
         }
+        Ok(())
+    }
+
+    #[test]
+    fn jkf_drop_marked_uchi() {
+        use crate::converter::ToKif;
+        use crate::jkf::*;
+
+        // A drop that a piece on the board could also make is written 打. JKF spells it
+        // as no from-square plus `relative: "H"`, which is what json-kifu-format and
+        // `normalize` itself write. `normalize` still looked for a from-square for it on
+        // the board: with one gold that could step to 5八 the drop became that gold's
+        // move, and with two it was rejected as ambiguous.
+        for golds in ["P+69KI\n", "P+69KI\nP+49KI\n"] {
+            let csa = format!("V2.2\nP-51OU\nP+59OU\n{golds}P+00KI\n+\n");
+            let mut jkf = parse_csa_str(&csa).expect("should parse");
+            jkf.moves.push(MoveFormat {
+                move_: Some(MoveMoveFormat {
+                    color: Color::Black,
+                    from: None,
+                    to: PlaceFormat { x: 5, y: 8 },
+                    piece: Kind::KI,
+                    same: None,
+                    promote: None,
+                    capture: None,
+                    relative: Some(Relative::H),
+                }),
+                ..Default::default()
+            });
+            jkf.normalize().unwrap_or_else(|e| panic!("{golds}: {e}"));
+            assert_eq!(jkf.moves[1].move_.map(|m| m.from), Some(None), "{golds}");
+            let kif = jkf.to_kif_owned();
+            assert!(kif.ends_with("   1 ５八金打\n"), "{kif}");
+        }
+    }
+
+    #[test]
+    fn jkf_move_with_no_from_is_a_drop() {
+        use crate::jkf::*;
+        use shogi_core::ToUsi;
+
+        // JKF gives every move but a drop its from-square, and `relative` is optional, so
+        // a move with no from-square is a drop whether or not it is marked 打. Unmarked,
+        // it was given a from-square from the board like a KI2 move: with one gold that
+        // could step to 5八 the drop became that gold's move, and with two it was
+        // rejected as ambiguous.
+        for golds in ["P+69KI\n", "P+69KI\nP+49KI\n"] {
+            let csa = format!("V2.2\nP-51OU\nP+59OU\n{golds}P+00KI\n+\n");
+            let mut jkf = parse_csa_str(&csa).expect("should parse");
+            jkf.moves.push(MoveFormat {
+                move_: Some(MoveMoveFormat {
+                    color: Color::Black,
+                    from: None,
+                    to: PlaceFormat { x: 5, y: 8 },
+                    piece: Kind::KI,
+                    same: None,
+                    promote: None,
+                    capture: None,
+                    relative: None,
+                }),
+                ..Default::default()
+            });
+            let json = serde_json::to_string(&jkf).expect("serializes");
+            let jkf = parse_jkf_str(&json).unwrap_or_else(|e| panic!("{golds}: {e}"));
+            assert_eq!(jkf.moves[1].move_.map(|m| m.from), Some(None), "{golds}");
+            let usi = jkf.to_usi_owned();
+            assert!(usi.ends_with(" moves G*5h"), "{usi}");
+        }
+
+        // A minimal JKF, as a producer may write it: the knight drop on 3三 has neither
+        // a from-square nor 打, and the knight on 2一 could also move there. It was read
+        // as 2一→3三, a different game.
+        let json = r#"{"header":{},"moves":[{},
+            {"move":{"from":{"x":7,"y":7},"to":{"x":7,"y":6},"color":0,"piece":"FU"}},
+            {"move":{"from":{"x":3,"y":3},"to":{"x":3,"y":4},"color":1,"piece":"FU"}},
+            {"move":{"from":{"x":8,"y":9},"to":{"x":7,"y":7},"color":0,"piece":"KE"}},
+            {"move":{"from":{"x":2,"y":2},"to":{"x":7,"y":7},"color":1,"piece":"KA","promote":true}},
+            {"move":{"from":{"x":8,"y":8},"to":{"x":7,"y":7},"color":0,"piece":"KA"}},
+            {"move":{"to":{"x":3,"y":3},"color":1,"piece":"KE"}}]}"#;
+        let jkf = parse_jkf_str(json).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            jkf.to_usi_owned(),
+            "startpos moves 7g7f 3c3d 8i7g 2b7g+ 8h7g N*3c"
+        );
+    }
+
+    #[test]
+    fn a_drop_cannot_promote_or_capture() {
+        use crate::jkf::*;
+
+        // A dropped piece goes down unpromoted on an empty square. A drop marked as
+        // promoting was played as a plain drop and kept `promote: true`, which the CSA
+        // writer then wrote as a promoted piece dropped, and that does not read back.
+        let head = "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n   2 ３四歩(33)\n   3 ２二角成(88)\n   4 同　銀(31)\n";
+        let err = parse_kif_str(&format!("{head}   5 ５五角成打\n")).expect_err("KIF 成打");
+        assert!(matches!(err, ParseError::Normalize(_)), "{err:?}");
+        let ki2 = "▲７六歩 △３四歩 ▲２二角成 △同銀 ▲５五角打成\n";
+        let err = parse_ki2_str(ki2).expect_err("KI2 打成");
+        assert!(matches!(err, ParseError::Normalize(_)), "{err:?}");
+        let drop = |promote, capture| {
+            let mut jkf = parse_kif_str(head).expect("should parse");
+            jkf.moves.push(MoveFormat {
+                move_: Some(MoveMoveFormat {
+                    color: Color::Black,
+                    from: None,
+                    to: PlaceFormat { x: 5, y: 5 },
+                    piece: Kind::KA,
+                    same: None,
+                    promote,
+                    capture,
+                    relative: None,
+                }),
+                ..Default::default()
+            });
+            parse_jkf_str(&serde_json::to_string(&jkf).expect("serializes"))
+        };
+        let err = drop(Some(true), None).expect_err("JKF promoting drop");
+        assert!(matches!(err, ParseError::Normalize(_)), "{err:?}");
+        // Nor does it take anything, or decline a promotion.
+        let jkf = drop(Some(false), Some(Kind::FU)).expect("should parse");
+        let mv = jkf.moves[5].move_.expect("a move");
+        assert_eq!((mv.promote, mv.capture), (None, None));
+    }
+
+    #[test]
+    fn jkf_fixtures_read_back_unchanged() -> Result<()> {
+        // Each fixture is a normalized record, so reading it as JKF must give it back as
+        // it is. Three of them failed on the drops above.
+        let mut files = 0;
+        for dir in ["data/tests/csa", "data/tests/kif", "data/tests/ki2"] {
+            for entry in Path::new(dir).read_dir()? {
+                let path = entry?.path();
+                if path.extension() != Some(OsStr::new("json")) {
+                    continue;
+                }
+                let plain: JsonKifuFormat =
+                    serde_json::from_reader(BufReader::new(File::open(&path)?))
+                        .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+                let parsed =
+                    parse_jkf_file(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+                assert_eq!(parsed, plain, "{}", path.display());
+                files += 1;
+            }
+        }
+        assert!(files > 0, "no JSON fixtures");
         Ok(())
     }
 
