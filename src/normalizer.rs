@@ -176,17 +176,20 @@ impl Hand {
     }
 }
 
+/// Splits `secs` into hours, minutes and seconds. A `TimeFormat` holds at most 255:59:59,
+/// so a longer time comes to that.
+pub(crate) fn hms(secs: u64) -> (u8, u8, u8) {
+    let s = secs.min(255 * 3600 + 59 * 60 + 59);
+    ((s / 3600) as u8, (s / 60 % 60) as u8, (s % 60) as u8)
+}
+
 fn add_timeformat(lhs: &TimeFormat, rhs: &TimeFormat) -> TimeFormat {
-    let s = (lhs.h.unwrap_or_default() + rhs.h.unwrap_or_default()) as u64 * 3600
-        + (lhs.m + rhs.m) as u64 * 60
-        + (lhs.s + rhs.s) as u64;
-    let m = (s / 60) % 60;
-    let h = s / 3600;
-    TimeFormat {
-        h: Some(h as u8),
-        m: m as u8,
-        s: (s % 60) as u8,
-    }
+    // In `u64`: a single think may be up to 255 minutes, and a total up to 255 hours.
+    let secs = |t: &TimeFormat| {
+        u64::from(t.h.unwrap_or_default()) * 3600 + u64::from(t.m) * 60 + u64::from(t.s)
+    };
+    let (h, m, s) = hms(secs(lhs) + secs(rhs));
+    TimeFormat { h: Some(h), m, s }
 }
 
 fn pk2k(pk: shogi_core::PieceKind) -> Kind {

@@ -1,6 +1,6 @@
 use crate::error::ParseError;
 use crate::jkf::*;
-use crate::normalizer::HIRATE_BOARD;
+use crate::normalizer::{hms, HIRATE_BOARD};
 use csa::{GameRecord, Position};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -288,13 +288,11 @@ impl From<csa::Color> for Color {
 
 impl From<Duration> for TimeFormat {
     fn from(d: Duration) -> Self {
-        let s = d.as_secs();
-        let m = (s / 60) % 60;
-        let h = s / 3600;
+        let (h, m, s) = hms(d.as_secs());
         TimeFormat {
-            h: if h > 0 { Some(h as u8) } else { None },
-            m: m as u8,
-            s: (s % 60) as u8,
+            h: (h > 0).then_some(h),
+            m,
+            s,
         }
     }
 }

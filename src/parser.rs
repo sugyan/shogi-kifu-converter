@@ -261,6 +261,41 @@ mod tests {
     }
 
     #[test]
+    fn long_thinks_do_not_overflow_the_totals() {
+        use crate::jkf::TimeFormat;
+
+        // The totals were added up field by field in `u8`. A think of 197 minutes or
+        // more on top of an hour's total overflowed the minutes: a panic in a debug
+        // build and a wrong total in a release one. Two-day title matches have such
+        // thinks.
+        let kif = "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)   (59:00/00:59:00)\n   2 ３四歩(33)   ( 0:01/00:00:01)\n   3 ２六歩(27)   (197:00/04:16:00)\n";
+        let jkf = parse_kif_str(kif).unwrap_or_else(|e| panic!("{e}"));
+        let total = jkf.moves[3].time.map(|t| t.total);
+        assert_eq!(
+            total,
+            Some(TimeFormat {
+                h: Some(4),
+                m: 16,
+                s: 0
+            })
+        );
+
+        // The hours did the same past 255, in a total or in a single CSA `T`. A
+        // `TimeFormat` holds at most 255:59:59, and that is what they now come to.
+        let max = TimeFormat {
+            h: Some(255),
+            m: 59,
+            s: 59,
+        };
+        let csa = "V2.2\nPI\n+\n+7776FU\nT918000\n-3334FU\nT1\n+2726FU\nT7200\n";
+        let jkf = parse_csa_str(csa).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(jkf.moves[3].time.map(|t| t.total), Some(max));
+        let jkf =
+            parse_csa_str("V2.2\nPI\n+\n+7776FU\nT921600\n").unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(jkf.moves[1].time.map(|t| t.now), Some(max));
+    }
+
+    #[test]
     fn off_board_move_square_is_not_a_drop() {
         // `normalize_move` used to fall back to `from: None` for any from-square it could
         // not convert, so an off-board origin was read as a drop of the named piece.
