@@ -30,11 +30,31 @@ fn validate_squares(record: &GameRecord) -> Result<(), ParseError> {
     Ok(())
 }
 
+/// A piece in hand is one of FU to HI, or `AL` for the rest of them. A king or a promoted
+/// piece at `00` is rejected here; `From<Position> for Initial` leaves one out.
+fn validate_hands(record: &GameRecord) -> Result<(), ParseError> {
+    use csa::PieceType::*;
+    if record.start_pos.add_pieces.iter().any(|&(_, sq, pt)| {
+        sq.file == 0
+            && sq.rank == 0
+            && !matches!(
+                pt,
+                Pawn | Lance | Knight | Silver | Gold | Bishop | Rook | All
+            )
+    }) {
+        return Err(ParseError::CsaConvert(
+            "a king or a promoted piece cannot be in hand",
+        ));
+    }
+    Ok(())
+}
+
 impl TryFrom<GameRecord> for JsonKifuFormat {
     type Error = ParseError;
 
     fn try_from(record: GameRecord) -> Result<Self, Self::Error> {
         validate_squares(&record)?;
+        validate_hands(&record)?;
         // Header
         let mut header = HashMap::new();
         if let Some(s) = record.black_player {
@@ -154,7 +174,10 @@ impl From<Position> for Initial {
         let mut hands = [Hand::default(); 2];
         for &(c, pt) in &hand_pieces {
             let index = Into::<Color>::into(c) as usize;
-            match pt.try_into() {
+            match Kind::try_from(pt) {
+                // A king or a promoted piece cannot be in hand. `parse_csa_str` rejects one,
+                // and this conversion, which cannot fail, leaves it out.
+                Ok(kind) if kind == Kind::OU || kind.unpromoted() != kind => {}
                 Ok(kind) => hands[index].increment(kind),
                 // In case PieceType::All
                 Err(_) => hands[index] = all_pieces,

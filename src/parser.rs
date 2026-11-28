@@ -261,6 +261,32 @@ mod tests {
     }
 
     #[test]
+    fn csa_hand_holds_only_hand_pieces() {
+        use crate::jkf::{Hand, Initial};
+
+        // A king or a promoted piece cannot be in hand, and `P+00OU` or `P+00TO` reached
+        // `Hand::increment`'s `unreachable!()` from `parse_csa_str`.
+        for piece in ["OU", "TO", "RY"] {
+            let csa = format!("V2.2\nP-51OU\nP+59OU\nP+00{piece}\n+\n");
+            let err = parse_csa_str(&csa).expect_err(&csa);
+            assert!(matches!(err, ParseError::CsaConvert(_)), "{csa}: {err:?}");
+        }
+        // `AL` still gives the rest of the pieces.
+        let jkf = parse_csa_str("V2.2\nP-51OU\nP+59OU\nP+00AL\n+\n").expect("should parse");
+        let data = jkf.initial.and_then(|i| i.data).expect("initial data");
+        assert_eq!(data.hands[0].FU, 18);
+        // The conversion from the csa crate's position cannot fail, so it leaves such a
+        // piece out instead.
+        let record = csa::parse_csa("V2.2\nP-51OU\nP+59OU\nP+00OU\nP+00FU\n+\n").expect("reads");
+        let hands = Initial::from(record.start_pos).data.map(|data| data.hands);
+        let fu = Hand {
+            FU: 1,
+            ..Default::default()
+        };
+        assert_eq!(hands, Some([fu, Hand::default()]));
+    }
+
+    #[test]
     fn long_thinks_do_not_overflow_the_totals() {
         use crate::jkf::TimeFormat;
 
