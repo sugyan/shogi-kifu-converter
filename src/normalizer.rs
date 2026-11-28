@@ -186,15 +186,15 @@ impl Hand {
     }
 }
 
-/// Splits `secs` into hours, minutes and seconds. A `TimeFormat` holds at most 255:59:59,
-/// so a longer time comes to that.
+/// Splits `secs` into hours, minutes and seconds under 60. A `TimeFormat` in that form
+/// holds at most 255:59:59, so a longer time comes to that.
 pub(crate) fn hms(secs: u64) -> (u8, u8, u8) {
     let s = secs.min(255 * 3600 + 59 * 60 + 59);
     ((s / 3600) as u8, (s / 60 % 60) as u8, (s % 60) as u8)
 }
 
 fn add_timeformat(lhs: &TimeFormat, rhs: &TimeFormat) -> TimeFormat {
-    // In `u64`: a single think may be up to 255 minutes, and a total up to 255 hours.
+    // In `u64`: each field of either is a `u8`, and their sums can pass 255.
     let secs = |t: &TimeFormat| {
         u64::from(t.h.unwrap_or_default()) * 3600 + u64::from(t.m) * 60 + u64::from(t.s)
     };

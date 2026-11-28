@@ -281,13 +281,16 @@ mod tests {
         assert_eq!(data.hands[0].FU, 18);
         // The conversion from the csa crate's position cannot fail, so it leaves such a
         // piece out instead.
-        let record = csa::parse_csa("V2.2\nP-51OU\nP+59OU\nP+00OU\nP+00FU\n+\n").expect("reads");
-        let hands = Initial::from(record.start_pos).data.map(|data| data.hands);
-        let fu = Hand {
-            FU: 1,
-            ..Default::default()
-        };
-        assert_eq!(hands, Some([fu, Hand::default()]));
+        for piece in ["OU", "TO", "RY"] {
+            let csa = format!("V2.2\nP-51OU\nP+59OU\nP+00{piece}\nP+00FU\n+\n");
+            let record = csa::parse_csa(&csa).expect("reads");
+            let hands = Initial::from(record.start_pos).data.map(|data| data.hands);
+            let fu = Hand {
+                FU: 1,
+                ..Default::default()
+            };
+            assert_eq!(hands, Some([fu, Hand::default()]), "{csa}");
+        }
     }
 
     #[test]
@@ -407,24 +410,29 @@ mod tests {
     fn long_thinks_do_not_overflow_the_totals() {
         use crate::jkf::TimeFormat;
 
-        // The totals were added up field by field in `u8`. A think of 197 minutes or
-        // more on top of an hour's total overflowed the minutes: a panic in a debug
-        // build and a wrong total in a release one. Two-day title matches have such
-        // thinks.
-        let kif = "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)   (59:00/00:59:00)\n   2 ３四歩(33)   ( 0:01/00:00:01)\n   3 ２六歩(27)   (197:00/04:16:00)\n";
-        let jkf = parse_kif_str(kif).unwrap_or_else(|e| panic!("{e}"));
-        let total = jkf.moves[3].time.map(|t| t.total);
-        assert_eq!(
-            total,
-            Some(TimeFormat {
-                h: Some(4),
-                m: 16,
-                s: 0
-            })
-        );
+        // The totals were added up field by field in `u8`, so the minutes of a total and
+        // of a think overflowed once they came to more than 255 together: a panic in a
+        // debug build and a wrong total in a release one. A think of 197 minutes on a
+        // total of 59 minutes does it, and two-day title matches have such thinks. The
+        // seconds did the same.
+        let head = "手合割：平手\n手数----指手---------消費時間--\n";
+        for (thinks, total) in [
+            (["(59:00/00:59:00)", "(197:00/04:16:00)"], (4, 16, 0)),
+            (["( 0:59/00:00:59)", "( 0:197/00:04:16)"], (0, 4, 16)),
+        ] {
+            let kif = format!(
+                "{head}   1 ７六歩(77)   {}\n   2 ３四歩(33)   ( 0:01/00:00:01)\n   3 ２六歩(27)   {}\n",
+                thinks[0], thinks[1]
+            );
+            let jkf = parse_kif_str(&kif).unwrap_or_else(|e| panic!("{e}"));
+            let (h, m, s) = total;
+            let total = jkf.moves[3].time.map(|t| t.total);
+            assert_eq!(total, Some(TimeFormat { h: Some(h), m, s }), "{kif}");
+        }
 
-        // The hours did the same past 255, in a total or in a single CSA `T`. A
-        // `TimeFormat` holds at most 255:59:59, and that is what they now come to.
+        // The hours did the same past 255, in a total or in a single CSA `T`. A normalized
+        // `TimeFormat`, with minutes and seconds under 60, holds at most 255:59:59, and
+        // that is what they now come to.
         let max = TimeFormat {
             h: Some(255),
             m: 59,
@@ -1409,6 +1417,7 @@ mod tests {
     fn write_then_parse_round_trips_the_corpus() -> Result<()> {
         use crate::converter::{ToCsa, ToKi2, ToKif};
         use crate::jkf::{Color, Initial, Kind};
+        use shogi_core::ToUsi;
 
         // Every other fixture test stops at input -> JKF; nothing checked that the
         // writers emit something these parsers can read. That is the property #20 and
@@ -1472,6 +1481,14 @@ mod tests {
                         essence(&original),
                         essence(&reparsed),
                         "{} as {format}",
+                        path.display()
+                    );
+                    // `essence` has no from-square, so compare the moves as played too: a
+                    // drop written as a move of the same piece reads back as another game.
+                    assert_eq!(
+                        original.to_usi_owned(),
+                        reparsed.to_usi_owned(),
+                        "{} as {format}: USI",
                         path.display()
                     );
                 }
@@ -1634,8 +1651,8 @@ mod tests {
 
     #[test]
     fn jkf_fixtures_read_back_unchanged() -> Result<()> {
-        // Each fixture is what a parser here hands back, so reading it as JKF must give
-        // it back as it is. Three of them failed on the drops above.
+        // Each fixture is a normalized record, so reading it as JKF must give it back as
+        // it is. Three of them failed on the drops above.
         let mut files = 0;
         for dir in ["data/tests/csa", "data/tests/kif", "data/tests/ki2"] {
             for entry in Path::new(dir).read_dir()? {
