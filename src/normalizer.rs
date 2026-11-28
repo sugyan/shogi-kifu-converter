@@ -521,6 +521,15 @@ fn normalize_move(
         };
         // Set capture?
         mmf.capture = pos.piece_at(to).map(|p| pk2k(p.piece_kind()));
+    } else {
+        // A drop puts an unpromoted piece on an empty square, so it neither promotes nor
+        // captures. One marked as promoting (KIF `成打`, KI2 `打成`) was played as a plain
+        // drop, and the CSA writer then wrote a promoted piece dropped.
+        if mmf.promote == Some(true) {
+            return Err(NormalizeError::PromotingDrop(to));
+        }
+        mmf.promote = None;
+        mmf.capture = None;
     }
     let mv = match shogi_core::Move::try_from(&*mmf) {
         Ok(mv) => mv,

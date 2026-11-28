@@ -1595,6 +1595,44 @@ mod tests {
     }
 
     #[test]
+    fn a_drop_cannot_promote_or_capture() {
+        use crate::jkf::*;
+
+        // A dropped piece goes down unpromoted on an empty square. A drop marked as
+        // promoting was played as a plain drop and kept `promote: true`, which the CSA
+        // writer then wrote as a promoted piece dropped, and that does not read back.
+        let head = "手合割：平手\n手数----指手---------消費時間--\n   1 ７六歩(77)\n   2 ３四歩(33)\n   3 ２二角成(88)\n   4 同　銀(31)\n";
+        let err = parse_kif_str(&format!("{head}   5 ５五角成打\n")).expect_err("KIF 成打");
+        assert!(matches!(err, ParseError::Normalize(_)), "{err:?}");
+        let ki2 = "▲７六歩 △３四歩 ▲２二角成 △同銀 ▲５五角打成\n";
+        let err = parse_ki2_str(ki2).expect_err("KI2 打成");
+        assert!(matches!(err, ParseError::Normalize(_)), "{err:?}");
+        let drop = |promote, capture| {
+            let mut jkf = parse_kif_str(head).expect("should parse");
+            jkf.moves.push(MoveFormat {
+                move_: Some(MoveMoveFormat {
+                    color: Color::Black,
+                    from: None,
+                    to: PlaceFormat { x: 5, y: 5 },
+                    piece: Kind::KA,
+                    same: None,
+                    promote,
+                    capture,
+                    relative: None,
+                }),
+                ..Default::default()
+            });
+            parse_jkf_str(&serde_json::to_string(&jkf).expect("serializes"))
+        };
+        let err = drop(Some(true), None).expect_err("JKF promoting drop");
+        assert!(matches!(err, ParseError::Normalize(_)), "{err:?}");
+        // Nor does it take anything, or decline a promotion.
+        let jkf = drop(Some(false), Some(Kind::FU)).expect("should parse");
+        let mv = jkf.moves[5].move_.expect("a move");
+        assert_eq!((mv.promote, mv.capture), (None, None));
+    }
+
+    #[test]
     fn jkf_fixtures_read_back_unchanged() -> Result<()> {
         // Each fixture is what a parser here hands back, so reading it as JKF must give
         // it back as it is. Three of them failed on the drops above.

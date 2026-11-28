@@ -48,6 +48,9 @@ pub enum NormalizeError {
     /// A move entry past `moves[0]` has neither a [`move_`](crate::jkf::MoveFormat::move_) nor a [`special`](crate::jkf::MoveFormat::special)
     #[error("Move entry has neither `move` nor `special`")]
     NoMoveOrSpecial,
+    /// A drop is marked as promoting, but a piece is always dropped unpromoted
+    #[error("A drop cannot promote: {0:?}")]
+    PromotingDrop(shogi_core::Square),
 }
 
 /// An error that can occur while parsing kifu data
