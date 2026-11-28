@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: ["main"]
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -14,8 +17,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Build
         run: cargo build --verbose
       - name: Run tests
         run: cargo test --verbose
+
+  # `build` uses the committed Cargo.lock. This job tests the newest
+  # compatible dependency versions instead, as the Cargo book suggests:
+  # https://doc.rust-lang.org/cargo/guide/continuous-integration.html#verifying-latest-dependencies
+  latest-deps:
+    name: Latest dependencies
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: allow
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup update stable && rustup default stable
+      - run: cargo update --verbose
+      - run: cargo build --verbose
+      - run: cargo test --verbose
