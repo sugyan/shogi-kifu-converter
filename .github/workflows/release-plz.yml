@@ -1,0 +1,55 @@
+name: Release-plz
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  # Publish the version in Cargo.toml if crates.io doesn't have it yet,
+  # then create the git tag and the GitHub release.
+  release-plz-release:
+    name: Release-plz release
+    if: ${{ github.repository_owner == 'sugyan' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push tags, create releases
+      pull-requests: read # detect the release PR (release_always = false)
+      id-token: write # crates.io trusted publishing
+    steps:
+      - &checkout
+        name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - &install-rust
+        name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run release-plz
+        uses: release-plz/action@v0.5
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Open or update the release PR with the next version and changelog.
+  release-plz-pr:
+    name: Release-plz PR
+    if: ${{ github.repository_owner == 'sugyan' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: release-plz-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - *checkout
+      - *install-rust
+      - name: Run release-plz
+        uses: release-plz/action@v0.5
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
