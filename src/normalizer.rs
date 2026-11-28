@@ -431,7 +431,10 @@ fn normalize_move(mmf: &mut MoveMoveFormat, pos: &PartialPosition) -> Result<(),
         Ok(to) => to,
         Err(err) => return Err(NormalizeError::Convert(err.to_string())),
     };
-    if mmf.from.is_none() {
+    // KI2 gives no from-square, so one is worked out from the position. JKF gives none
+    // for a drop either, and marks one that a piece on the board could also make with 打,
+    // as json-kifu-format and this function write it. That one is a drop as it stands.
+    if mmf.from.is_none() && mmf.relative != Some(Relative::H) {
         mmf.from = calculate_from(mmf, pos, to)?;
     }
     // `(0, 0)` is how a from-square says "drop": the parsers write it for `打` and for

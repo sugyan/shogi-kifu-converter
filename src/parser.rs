@@ -1256,6 +1256,9 @@ mod tests {
             ("data/tests/csa", "csa"),
             ("data/tests/kif", "kif"),
             ("data/tests/ki2", "ki2"),
+            ("data/tests/csa", "json"),
+            ("data/tests/kif", "json"),
+            ("data/tests/ki2", "json"),
         ] {
             for entry in Path::new(dir).read_dir()? {
                 let path = entry?.path();
@@ -1265,6 +1268,7 @@ mod tests {
                 let original = match ext {
                     "csa" => parse_csa_file(&path),
                     "kif" => parse_kif_file(&path),
+                    "json" => parse_jkf_file(&path),
                     _ => parse_ki2_file(&path),
                 }
                 .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
@@ -1326,6 +1330,63 @@ mod tests {
             }
             assert!(pairs > 0, "no .{utf8} fixtures in {dir}");
         }
+        Ok(())
+    }
+
+    #[test]
+    fn jkf_drop_marked_uchi() {
+        use crate::converter::ToKif;
+        use crate::jkf::*;
+
+        // A drop that a piece on the board could also make is written 打. JKF spells it
+        // as no from-square plus `relative: "H"`, which is what json-kifu-format and
+        // `normalize` itself write. `normalize` still looked for a from-square for it on
+        // the board: with one gold that could step to 5八 the drop became that gold's
+        // move, and with two it was rejected as ambiguous.
+        for golds in ["P+69KI\n", "P+69KI\nP+49KI\n"] {
+            let csa = format!("V2.2\nP-51OU\nP+59OU\n{golds}P+00KI\n+\n");
+            let mut jkf = parse_csa_str(&csa).expect("should parse");
+            jkf.moves.push(MoveFormat {
+                move_: Some(MoveMoveFormat {
+                    color: Color::Black,
+                    from: None,
+                    to: PlaceFormat { x: 5, y: 8 },
+                    piece: Kind::KI,
+                    same: None,
+                    promote: None,
+                    capture: None,
+                    relative: Some(Relative::H),
+                }),
+                ..Default::default()
+            });
+            jkf.normalize().unwrap_or_else(|e| panic!("{golds}: {e}"));
+            assert_eq!(jkf.moves[1].move_.map(|m| m.from), Some(None), "{golds}");
+            let kif = jkf.to_kif_owned();
+            assert!(kif.ends_with("   1 ５八金打\n"), "{kif}");
+        }
+    }
+
+    #[test]
+    fn jkf_fixtures_read_back_unchanged() -> Result<()> {
+        // Each fixture is what a parser here hands back, so reading it as JKF must give
+        // it back as it is. Three of them failed on the drops above.
+        let mut files = 0;
+        for dir in ["data/tests/csa", "data/tests/kif", "data/tests/ki2"] {
+            for entry in Path::new(dir).read_dir()? {
+                let path = entry?.path();
+                if path.extension() != Some(OsStr::new("json")) {
+                    continue;
+                }
+                let plain: JsonKifuFormat =
+                    serde_json::from_reader(BufReader::new(File::open(&path)?))
+                        .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+                let parsed =
+                    parse_jkf_file(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+                assert_eq!(parsed, plain, "{}", path.display());
+                files += 1;
+            }
+        }
+        assert!(files > 0, "no JSON fixtures");
         Ok(())
     }
 
