@@ -2,6 +2,9 @@
 //!
 //! Reference: [https://apps.81.la/json-kifu-format/docs/modules/Formats.html](https://apps.81.la/json-kifu-format/docs/modules/Formats.html)
 
+mod from_pkf;
+mod into_pkf;
+
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::collections::HashMap;

@@ -26,7 +26,7 @@ mod tests {
     }
 
     #[test]
-    fn pos_to_pos() {
+    fn pos_jkf_pos() {
         let orig = {
             let mut pos = Position::default();
             let moves = [
@@ -66,7 +66,7 @@ mod tests {
     }
 
     #[test]
-    fn jkf_to_jkf() -> Result<()> {
+    fn jkf_pos_jkf() -> Result<()> {
         visit_dirs(Path::new("data/tests"), &|entry: &DirEntry| -> Result<()> {
             let path = entry.path();
             if path.extension() != Some(OsStr::new("json")) {
