@@ -222,6 +222,11 @@ impl JsonKifuFormat {
     /// written out: the writers rely on what this fills in, and write anything else only
     /// as far as their format can express it.
     ///
+    /// A move with no `from` is a drop when it is marked 打 (`relative: H`). Otherwise
+    /// its from-square is worked out from the position, as KI2 needs, and it is a drop
+    /// only if no piece on the board can make it. `parse_jkf_str` and `parse_jkf_file`
+    /// instead read every move with no `from` as a drop, as JKF specifies.
+    ///
     /// # Errors
     ///
     /// Returns [`NormalizeError`] if a line cannot be replayed from its initial position
@@ -229,6 +234,18 @@ impl JsonKifuFormat {
     /// kifu can spell), or if a move entry past `moves[0]` has neither `move` nor
     /// `special`.
     pub fn normalize(&mut self) -> Result<(), NormalizeError> {
+        self.normalize_with(false)
+    }
+
+    // `normalize` for a record read as JKF, which gives every move but a drop its
+    // from-square.
+    pub(crate) fn normalize_jkf(&mut self) -> Result<(), NormalizeError> {
+        self.normalize_with(true)
+    }
+
+    // `from_given`: the record gives the from-square of every move but a drop, so a move
+    // with none is a drop.
+    fn normalize_with(&mut self, from_given: bool) -> Result<(), NormalizeError> {
         check_entries(self.moves.get(1..).unwrap_or_default())?;
         normalize_initial(self)?;
         let pos = if let Some(initial) = &self.initial {
@@ -257,7 +274,7 @@ impl JsonKifuFormat {
         // `moves` may legitimately be empty: the JKF schema puts no lower bound on it,
         // and only `moves[0]` (the initial position's comment slot) would be missing.
         let moves = self.moves.get_mut(1..).unwrap_or_default();
-        normalize_moves(moves, pos, [TimeFormat::default(); 2])?;
+        normalize_moves(moves, pos, [TimeFormat::default(); 2], from_given)?;
         Ok(())
     }
 }
@@ -414,7 +431,11 @@ fn calculate_from(
     }
 }
 
-fn normalize_move(mmf: &mut MoveMoveFormat, pos: &PartialPosition) -> Result<(), NormalizeError> {
+fn normalize_move(
+    mmf: &mut MoveMoveFormat,
+    pos: &PartialPosition,
+    from_given: bool,
+) -> Result<(), NormalizeError> {
     if matches!(
         (mmf.color, pos.side_to_move()),
         (Color::Black, shogi_core::Color::White) | (Color::White, shogi_core::Color::Black)
@@ -434,10 +455,11 @@ fn normalize_move(mmf: &mut MoveMoveFormat, pos: &PartialPosition) -> Result<(),
         Ok(to) => to,
         Err(err) => return Err(NormalizeError::Convert(err.to_string())),
     };
-    // KI2 gives no from-square, so one is worked out from the position. JKF gives none
-    // for a drop either, and marks one that a piece on the board could also make with 打,
-    // as json-kifu-format and this function write it. That one is a drop as it stands.
-    if mmf.from.is_none() && mmf.relative != Some(Relative::H) {
+    // KI2 gives no from-square, so one is worked out from the position. A drop has none
+    // either, and is one as it stands when the record gives every other move its
+    // from-square, as JKF does, or when it is marked 打, as json-kifu-format and this
+    // function write a drop that a piece on the board could also make.
+    if mmf.from.is_none() && !from_given && mmf.relative != Some(Relative::H) {
         mmf.from = calculate_from(mmf, pos, to)?;
     }
     // `(0, 0)` is how a from-square says "drop": the parsers write it for `打` and for
@@ -529,12 +551,13 @@ fn normalize_moves(
     moves: &mut [MoveFormat],
     mut pos: PartialPosition,
     mut totals: [TimeFormat; 2],
+    from_given: bool,
 ) -> Result<(), NormalizeError> {
     for mf in moves {
         // Normalize forks
         if let Some(forks) = &mut mf.forks {
             for v in forks.iter_mut() {
-                normalize_moves(v, pos.clone(), totals)?;
+                normalize_moves(v, pos.clone(), totals, from_given)?;
             }
         }
         // Calculate total time
@@ -544,7 +567,7 @@ fn normalize_moves(
             time.total = totals[pos.side_to_move().array_index()];
         }
         if let Some(mmf) = &mut mf.move_ {
-            normalize_move(mmf, &pos)?;
+            normalize_move(mmf, &pos, from_given)?;
             let mv = match shogi_core::Move::try_from(&*mmf) {
                 Ok(mv) => mv,
                 Err(err) => return Err(NormalizeError::Convert(err.to_string())),
@@ -565,7 +588,7 @@ mod tests {
     #[test]
     fn normalize_moves_empty() {
         let pos = PartialPosition::startpos();
-        assert!(normalize_moves(&mut [], pos, [TimeFormat::default(); 2]).is_ok());
+        assert!(normalize_moves(&mut [], pos, [TimeFormat::default(); 2], false).is_ok());
     }
 
     #[test]
@@ -588,7 +611,8 @@ mod tests {
                         ..Default::default()
                     }],
                     pos,
-                    [TimeFormat::default(); 2]
+                    [TimeFormat::default(); 2],
+                    false
                 )
                 .is_ok(),
                 "normalize should succeed"
@@ -612,7 +636,8 @@ mod tests {
                         ..Default::default()
                     }],
                     pos,
-                    [TimeFormat::default(); 2]
+                    [TimeFormat::default(); 2],
+                    false
                 )
                 .is_err(),
                 "normalize should fail"

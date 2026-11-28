@@ -143,13 +143,15 @@ pub fn parse_ki2_str(s: &str) -> Result<JsonKifuFormat, ParseError> {
 
 /// Parses a JSON file to [`jkf::JsonKifuFormat`](crate::jkf::JsonKifuFormat)
 ///
+/// A move with no `from` is a drop, as JKF specifies, whether or not it is marked 打.
+///
 /// # Errors
 ///
 /// This function returns [`ConvertError`](crate::error::ConvertError) if it fails to parse the file.
 pub fn parse_jkf_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ParseError> {
     let file = File::open(&path)?;
     let mut jkf = serde_json::from_reader::<_, JsonKifuFormat>(BufReader::new(file))?;
-    if let Err(err) = jkf.normalize() {
+    if let Err(err) = jkf.normalize_jkf() {
         Err(ParseError::Normalize(err.to_string()))
     } else {
         Ok(jkf)
@@ -158,12 +160,14 @@ pub fn parse_jkf_file<P: AsRef<Path>>(path: P) -> Result<JsonKifuFormat, ParseEr
 
 /// Parses a JSON file to [`jkf::JsonKifuFormat`](crate::jkf::JsonKifuFormat)
 ///
+/// A move with no `from` is a drop, as JKF specifies, whether or not it is marked 打.
+///
 /// # Errors
 ///
 /// This function returns [`ConvertError`](crate::error::ConvertError) if it fails to parse the file.
 pub fn parse_jkf_str(s: &str) -> Result<JsonKifuFormat, ParseError> {
     let mut jkf = serde_json::from_str::<JsonKifuFormat>(s)?;
-    if let Err(err) = jkf.normalize() {
+    if let Err(err) = jkf.normalize_jkf() {
         Err(ParseError::Normalize(err.to_string()))
     } else {
         Ok(jkf)
@@ -1425,6 +1429,56 @@ mod tests {
             let kif = jkf.to_kif_owned();
             assert!(kif.ends_with("   1 ５八金打\n"), "{kif}");
         }
+    }
+
+    #[test]
+    fn jkf_move_with_no_from_is_a_drop() {
+        use crate::jkf::*;
+        use shogi_core::ToUsi;
+
+        // JKF gives every move but a drop its from-square, and `relative` is optional, so
+        // a move with no from-square is a drop whether or not it is marked 打. Unmarked,
+        // it was given a from-square from the board like a KI2 move: with one gold that
+        // could step to 5八 the drop became that gold's move, and with two it was
+        // rejected as ambiguous.
+        for golds in ["P+69KI\n", "P+69KI\nP+49KI\n"] {
+            let csa = format!("V2.2\nP-51OU\nP+59OU\n{golds}P+00KI\n+\n");
+            let mut jkf = parse_csa_str(&csa).expect("should parse");
+            jkf.moves.push(MoveFormat {
+                move_: Some(MoveMoveFormat {
+                    color: Color::Black,
+                    from: None,
+                    to: PlaceFormat { x: 5, y: 8 },
+                    piece: Kind::KI,
+                    same: None,
+                    promote: None,
+                    capture: None,
+                    relative: None,
+                }),
+                ..Default::default()
+            });
+            let json = serde_json::to_string(&jkf).expect("serializes");
+            let jkf = parse_jkf_str(&json).unwrap_or_else(|e| panic!("{golds}: {e}"));
+            assert_eq!(jkf.moves[1].move_.map(|m| m.from), Some(None), "{golds}");
+            let usi = jkf.to_usi_owned();
+            assert!(usi.ends_with(" moves G*5h"), "{usi}");
+        }
+
+        // A minimal JKF, as a producer may write it: the knight drop on 3三 has neither
+        // a from-square nor 打, and the knight on 2一 could also move there. It was read
+        // as 2一→3三, a different game.
+        let json = r#"{"header":{},"moves":[{},
+            {"move":{"from":{"x":7,"y":7},"to":{"x":7,"y":6},"color":0,"piece":"FU"}},
+            {"move":{"from":{"x":3,"y":3},"to":{"x":3,"y":4},"color":1,"piece":"FU"}},
+            {"move":{"from":{"x":8,"y":9},"to":{"x":7,"y":7},"color":0,"piece":"KE"}},
+            {"move":{"from":{"x":2,"y":2},"to":{"x":7,"y":7},"color":1,"piece":"KA","promote":true}},
+            {"move":{"from":{"x":8,"y":8},"to":{"x":7,"y":7},"color":0,"piece":"KA"}},
+            {"move":{"to":{"x":3,"y":3},"color":1,"piece":"KE"}}]}"#;
+        let jkf = parse_jkf_str(json).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            jkf.to_usi_owned(),
+            "startpos moves 7g7f 3c3d 8i7g 2b7g+ 8h7g N*3c"
+        );
     }
 
     #[test]
